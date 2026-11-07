@@ -36,6 +36,7 @@ struct GitHubCommand: AsyncParsableCommand {
         defer { context.endSession(keep: login.keepLogin) }
         let loaded = try context.customer(customer)
         let target = try loaded.githubTarget(project: project, cwd: customer == nil ? context.cwd : nil)
+        try CustomerLocator.ensureUnclaimed(target, owner: loaded, root: context.global.root)
         let github = target.settings
         print("GitHub-PAT für \(target.label)")
         try context.pass.ensureUserSession()

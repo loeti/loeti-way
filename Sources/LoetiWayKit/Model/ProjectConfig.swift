@@ -33,6 +33,8 @@ public struct GitHubTarget: Equatable, Sendable {
 /// that replaces the customer's in this folder. The Proton agent stays the customer's.
 ///
 /// Every `github` key is optional; missing ones come from the customer's `github` section.
+/// The note in the token vault is always `<customer> <project> GitHub PAT`: the file lies in a
+/// folder agents can write to, so it must not be able to point lw at another note.
 public enum ProjectConfig {
     public static let fileName = ".loeti-way-project.yaml"
 
@@ -81,14 +83,14 @@ public enum ProjectConfig {
             expiresInDays: partial.expiresInDays ?? inherited?.expiresInDays ?? 90,
             permissions: partial.permissions ?? inherited?.permissions ?? GitHubSettings.defaultPermissions,
             repositories: partial.repositories ?? [name],
-            tokenItem: partial.tokenItem,
+            tokenItem: nil,
             tokenName: partial.tokenName
         )
         let target = GitHubTarget(
             customer: customer.customer,
             project: name,
             settings: settings,
-            tokenItem: partial.tokenItem ?? "\(customer.customer) \(name) GitHub PAT",
+            tokenItem: "\(customer.customer) \(name) GitHub PAT",
             tokenName: partial.tokenName ?? "\(customer.customer) \(name) Asylum",
             directory: folder
         )
@@ -96,6 +98,9 @@ public enum ProjectConfig {
         var problems = settings.problems(section: "github")
         if name.trimmingCharacters(in: .whitespaces).isEmpty {
             problems.append("'project' ist leer")
+        }
+        if partial.tokenItem != nil {
+            problems.append("'github.token_item' gibt es nur beim Kunden; die Notiz des Projekts heisst immer '\(target.tokenItem)'")
         }
         if target.tokenItem.contains("/") {
             problems.append("'\(target.tokenItem)' enthält '/', das geht nicht in pass://-Referenzen")

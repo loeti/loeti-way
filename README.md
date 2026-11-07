@@ -91,6 +91,8 @@ github:                         # fehlende Werte kommen vom Kunden
 
 `lw init --project` legt die Datei und eine `.envrc` an und trägt beide in `.git/info/exclude` ein, falls der Ordner ein git-Repo ist. Die `.envrc` lädt zuerst die des Kunden (`source_up_if_exists`) und setzt dann `ASYLUM_GH_TOKEN` neu. Fehlt der Projekt-Token, bleibt die Variable leer; es gibt keinen Rückfall auf den breiteren Kunden-PAT. `lw` sucht Projekte bis 2 Ebenen unter dem Kundenordner.
 
+Die Notiz im Token-Vault heisst immer `<Kunde> <Projekt> GitHub PAT`; `token_item` gibt es nur beim Kunden. Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw init --project` und `lw github` ab.
+
 `token_name` gibt es auch beim Kunden. Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
 
 ## Globale Einstellungen

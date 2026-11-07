@@ -28,9 +28,8 @@ public enum CustomerLocator {
         for projectFile in findProjects(below: customer.directory, maxDepth: projectDepth) {
             do {
                 let project = try ProjectConfig.resolve(try read(projectFile), folder: projectFile.deletingLastPathComponent(), customer: config)
-                let taken = customer.githubTargets.map(\.tokenItem)
-                guard !taken.contains(project.github.tokenItem) else {
-                    throw LWError("Notiz '\(project.github.tokenItem)' ist schon vergeben; 'github.token_item' anders setzen")
+                guard !customer.tokenItems.contains(project.github.tokenItem) else {
+                    throw LWError("Notiz '\(project.github.tokenItem)' ist schon vergeben; 'project' anders setzen")
                 }
                 customer.projects.append(project)
             } catch {
@@ -102,6 +101,18 @@ public enum CustomerLocator {
         guard depth < maxDepth else { return }
         for entry in subdirectories(of: directory) {
             walk(entry, depth: depth + 1, maxDepth: maxDepth, into: &result)
+        }
+    }
+
+    /// Throws if a customer other than `owner` uses the note `target` would read or write.
+    /// Customer and project names are free text, so `KundeA` + project `X` and a customer
+    /// `KundeA X` would otherwise share `KundeA X GitHub PAT`.
+    public static func ensureUnclaimed(_ target: GitHubTarget, owner: LoadedCustomer, root: URL) throws {
+        let ownFile = owner.file.standardizedFileURL
+        for other in discover(root: root).customers where other.file.standardizedFileURL != ownFile {
+            if other.tokenItems.contains(target.tokenItem) {
+                throw LWError("Die Notiz '\(target.tokenItem)' gehört auch zu \(other.config.customer) (\(other.file.path)). Nichts geändert.")
+            }
         }
     }
 

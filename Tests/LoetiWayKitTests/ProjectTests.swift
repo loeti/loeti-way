@@ -45,15 +45,14 @@ struct ProjectTests {
         github:
           owner: other-org
           token_name: loeti_loeti-way_PAT
-          token_item: Web Token
           expires_in_days: 30
           repositories: [web, docs]
           permissions: {contents: read}
         """, folder: folder, customer: try kundeA())
         #expect(project.name == "Web App")
         #expect(project.github.settings == GitHubSettings(owner: "other-org", expiresInDays: 30, permissions: ["contents": "read"],
-                                                          repositories: ["web", "docs"], tokenItem: "Web Token", tokenName: "loeti_loeti-way_PAT"))
-        #expect(project.github.tokenItem == "Web Token")
+                                                          repositories: ["web", "docs"], tokenName: "loeti_loeti-way_PAT"))
+        #expect(project.github.tokenItem == "KundeA Web App GitHub PAT")
         #expect(project.github.tokenName == "loeti_loeti-way_PAT")
     }
 
@@ -63,7 +62,9 @@ struct ProjectTests {
         #expect(throws: LWError.self) { try ProjectConfig.resolve("{}", folder: folder, customer: noGitHub) }
         #expect(try ProjectConfig.resolve("github: {owner: b-org}", folder: folder, customer: noGitHub).github.settings.owner == "b-org")
         #expect(throws: LWError.self) { try ProjectConfig.resolve("github: {expires_in_days: 0}", folder: folder, customer: try kundeA()) }
-        #expect(throws: LWError.self) { try ProjectConfig.resolve("github: {token_item: a/b}", folder: folder, customer: try kundeA()) }
+        #expect(throws: LWError.self) { try ProjectConfig.resolve("project: a/b", folder: folder, customer: try kundeA()) }
+        // The file lies where agents can write; it must not choose the note lw reads and writes.
+        #expect(throws: LWError.self) { try ProjectConfig.resolve("github: {token_item: KundeB GitHub PAT}", folder: folder, customer: try kundeA()) }
     }
 
     @Test("projects are found up to two levels below the customer, broken ones reported")
@@ -79,9 +80,24 @@ struct ProjectTests {
     @Test("two PATs can't share a note in the token vault")
     func duplicateItem() throws {
         let (_, customerDir) = try makeTree()
-        try Fixtures.write("github: {token_item: KundeA GitHub PAT}\n", to: customerDir.appendingPathComponent("dup/\(ProjectConfig.fileName)"))
+        let config = Fixtures.kundeA.replacingOccurrences(of: "  expiration: 1m\n", with: "  expiration: 1m\n  token_item: KundeA dup GitHub PAT\n")
+        try Fixtures.write(config, to: customerDir.appendingPathComponent(CustomerConfig.fileName))
+        try Fixtures.write("{}\n", to: customerDir.appendingPathComponent("dup/\(ProjectConfig.fileName)"))
         let customer = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
         #expect(customer.projectFailures.contains { $0.message.contains("schon vergeben") })
+    }
+
+    @Test("a project can't use another customer's note")
+    func crossCustomerItem() throws {
+        let (root, customerDir) = try makeTree()
+        // Customer "KundeA web" owns "KundeA web GitHub PAT", the note of KundeA's project web.
+        let other = Fixtures.kundeA.replacingOccurrences(of: "customer: KundeA", with: "customer: KundeA web")
+        try Fixtures.write(other, to: root.appendingPathComponent("customers/KundeAWeb/\(CustomerConfig.fileName)"))
+        let kundeA = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
+        let web = try kundeA.githubTarget(project: "web", cwd: nil)
+        #expect(throws: LWError.self) { try CustomerLocator.ensureUnclaimed(web, owner: kundeA, root: root) }
+        try CustomerLocator.ensureUnclaimed(try kundeA.githubTarget(project: "api", cwd: nil), owner: kundeA, root: root)
+        try CustomerLocator.ensureUnclaimed(try #require(kundeA.config.githubTarget(directory: kundeA.directory)), owner: kundeA, root: root)
     }
 
     @Test("lw github picks the named project, then the one around cwd, then the customer")

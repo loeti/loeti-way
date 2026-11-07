@@ -231,6 +231,11 @@ public struct LoadedCustomer: Sendable, Equatable {
         (config.githubTarget(directory: directory).map { [$0] } ?? []) + projects.map(\.github)
     }
 
+    /// Titles of every note this customer reads or writes in the token vault.
+    public var tokenItems: Set<String> {
+        Set([config.protonTokenItem] + githubTargets.map(\.tokenItem))
+    }
+
     /// The project whose folder is `url` or contains it.
     public func project(containing url: URL) -> LoadedProject? {
         let path = url.standardizedFileURL.path

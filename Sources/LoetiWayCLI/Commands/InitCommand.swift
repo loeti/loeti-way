@@ -108,6 +108,8 @@ struct InitCommand: AsyncParsableCommand {
             throw LWError("\(configFile.path) liegt zu tief unter \(loaded.directory.path) (höchstens 2 Ebenen)")
         }
 
+        try CustomerLocator.ensureUnclaimed(project.github, owner: loaded, root: context.global.root)
+
         if !noEnvrc {
             let envrcFile = folder.appendingPathComponent(".envrc")
             let envrc = Scaffold.projectEnvrc(target: project.github, tokenVault: context.global.tokenVault)
