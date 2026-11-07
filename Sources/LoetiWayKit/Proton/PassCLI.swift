@@ -58,16 +58,21 @@ public struct PassCLI {
 
     // MARK: Session
 
-    /// Managing agents needs the user's own login, not a token session.
-    public func ensureUserSession() throws {
+    /// Who pass-cli is logged in as, from `pass-cli info`.
+    public func session() throws -> PassSession {
         let result = try runner.run(["info"], stdin: nil)
         if result.status == 127 { throw Self.notFound }
-        guard result.status == 0 else {
-            throw LWError("Nicht bei Proton Pass angemeldet. Zuerst `pass-cli login` ausführen.")
-        }
-        if result.stdoutString.contains("- Personal Access Token:") {
-            throw LWError("pass-cli ist mit einem Token angemeldet, nicht mit deinem Konto. Agents kann nur dein Konto verwalten: `pass-cli logout`, dann `pass-cli login`.")
-        }
+        guard result.status == 0 else { return .loggedOut }
+        return PassSession.parse(info: result.stdoutString)
+    }
+
+    /// Managing agents needs the user's own login, not a token session.
+    public func ensureUserSession() throws {
+        try session().requireAccount()
+    }
+
+    public func logout() throws {
+        try call(["logout"])
     }
 
     // MARK: Agents

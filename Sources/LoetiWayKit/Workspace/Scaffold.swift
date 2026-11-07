@@ -9,6 +9,7 @@ public enum Scaffold {
 
     public static func configTemplate(customer: String, githubOwner: String?) -> String {
         let name = yamlQuoted(customer)
+        let vault = VaultNaming.agentVault(customer: customer)
         var text = """
         # lw (loeti-way): Proton-Pass-Agent und GitHub-PAT für \(customer)
         customer: \(name)
@@ -16,10 +17,10 @@ public enum Scaffold {
         proton:
           # agent: asylum-\(Slug.make(customer))     # Standard
           expiration: 3m                # 1w, 1m, 3m, 6m, 1y
-          vaults:
-            - name: \(name)
+          vaults:                       # nur agent-…-Vaults, siehe README
+            - name: \(vault)
               role: viewer              # viewer, editor, manager
-            # - name: \(yamlQuoted(customer + " Infra"))
+            # - name: \(vault)-infra
             #   role: viewer
 
         """

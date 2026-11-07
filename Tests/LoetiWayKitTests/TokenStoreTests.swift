@@ -13,11 +13,11 @@ struct TokenStoreTests {
           {"id": "other", "share_id": "s", "title": "KundeB Proton Agent", "state": "Active"}
         ]}
         """)
-        let store = TokenStore(pass: PassCLI(runner: runner), vault: "Agent Tokens")
+        let store = TokenStore(pass: PassCLI(runner: runner), vault: "lw-tokens")
         try store.save(title: "KundeA Proton Agent", token: "pst_secret::KEY")
 
         #expect(runner.mutations == [
-            "item create note --vault-name Agent Tokens --from-template -",
+            "item create note --vault-name lw-tokens --from-template -",
             "item delete --share-id s --item-id old",
         ])
         for call in runner.calls {
@@ -33,12 +33,12 @@ struct TokenStoreTests {
     func missingVault() {
         let runner = FakeRunner()
         runner.on(["item", "list"], status: 1, stderr: "Vault not found")
-        let store = TokenStore(pass: PassCLI(runner: runner), vault: "Agent Tokens")
+        let store = TokenStore(pass: PassCLI(runner: runner), vault: "lw-tokens")
         do {
             try store.save(title: "T", token: "x")
             Issue.record("expected an error")
         } catch {
-            #expect("\(error)".contains("pass-cli vault create --name \"Agent Tokens\""))
+            #expect("\(error)".contains("pass-cli vault create --name \"lw-tokens\""))
         }
         #expect(runner.mutations.isEmpty)
     }
@@ -47,8 +47,8 @@ struct TokenStoreTests {
     func read() throws {
         let runner = FakeRunner()
         runner.on(["item", "view"], stdout: "github_pat_abc\n")
-        let store = TokenStore(pass: PassCLI(runner: runner), vault: "Agent Tokens")
+        let store = TokenStore(pass: PassCLI(runner: runner), vault: "lw-tokens")
         #expect(try store.read(title: "KundeA GitHub PAT") == "github_pat_abc")
-        #expect(runner.calls.first?.arguments == ["item", "view", "pass://Agent Tokens/KundeA GitHub PAT/note"])
+        #expect(runner.calls.first?.arguments == ["item", "view", "pass://lw-tokens/KundeA GitHub PAT/note"])
     }
 }

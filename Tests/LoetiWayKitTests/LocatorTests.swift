@@ -36,7 +36,7 @@ struct LocatorTests {
         let inside = root.appendingPathComponent("customers/KundeA/repo/src")
         #expect(try CustomerLocator.resolve(name: nil, cwd: inside, root: root).config.customer == "Nested")
 
-        #expect(throws: LWError.self) { try CustomerLocator.resolve(name: "KundeB", cwd: cwd, root: root) }
+        #expect(throws: LWError.self) { try CustomerLocator.resolve(name: "agent-kundeb", cwd: cwd, root: root) }
         #expect(throws: LWError.self) { try CustomerLocator.resolve(name: "KundeZ", cwd: cwd, root: root) }
     }
 

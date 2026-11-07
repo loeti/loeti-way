@@ -14,6 +14,7 @@ struct GitHubCommand: AsyncParsableCommand {
     )
 
     @OptionGroup var options: CommonOptions
+    @OptionGroup var login: LoginOptions
 
     @Argument(help: "Kunde (Name oder Ordner). Ohne Angabe: .loeti-way.yaml im aktuellen Verzeichnis oder darüber.")
     var customer: String?
@@ -26,6 +27,7 @@ struct GitHubCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
+        defer { context.endSession(keep: login.keepLogin) }
         let config = try context.customer(customer).config
         guard let github = config.github else {
             throw LWError("\(config.customer) hat keinen github-Abschnitt in \(CustomerConfig.fileName)")

@@ -60,8 +60,8 @@ enum Fixtures {
     proton:
       expiration: 1m
       vaults:
-        - name: KundeA
-        - name: KundeA Infra
+        - name: agent-kundea
+        - name: agent-kundea-infra
           role: editor
     github:
       owner: kundea-org

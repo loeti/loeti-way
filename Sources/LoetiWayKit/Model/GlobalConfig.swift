@@ -5,12 +5,12 @@ import Yams
 ///
 /// ```yaml
 /// root: /Volumes/Code          # where `lw status` looks for customers
-/// token_vault: Agent Tokens    # Proton vault for all tokens; no agent gets access to it
+/// token_vault: lw-tokens       # Proton vault for all tokens; must start with lw-, no agent gets access
 /// warn_days: 14                # warn this many days before a token expires
 /// ```
 public struct GlobalConfig: Equatable, Sendable {
     public static let defaultRoot = "/Volumes/Code"
-    public static let defaultTokenVault = "Agent Tokens"
+    public static let defaultTokenVault = "lw-tokens"
 
     public var root: URL
     public var tokenVault: String
@@ -58,6 +58,13 @@ public struct GlobalConfig: Equatable, Sendable {
             tokenVault: environment["LW_TOKEN_VAULT"] ?? file.tokenVault ?? defaultTokenVault,
             warnDays: file.warnDays ?? 14
         )
+    }
+
+    /// Settings can also come from options after `load`, so commands check them here.
+    public func validate() throws {
+        if let problem = VaultNaming.problem(tokenVault: tokenVault) {
+            throw LWError(problem)
+        }
     }
 
     static func expandTilde(_ path: String, environment: [String: String]) -> String {

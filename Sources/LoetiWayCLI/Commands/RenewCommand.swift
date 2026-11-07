@@ -10,6 +10,7 @@ struct RenewCommand: AsyncParsableCommand {
     )
 
     @OptionGroup var options: CommonOptions
+    @OptionGroup var login: LoginOptions
 
     @Argument(help: "Kunde (Name oder Ordner). Ohne Angabe: .loeti-way.yaml im aktuellen Verzeichnis oder darüber.")
     var customer: String?
@@ -22,6 +23,7 @@ struct RenewCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
+        defer { context.endSession(keep: login.keepLogin) }
         let config = try context.customer(customer).config
         let lifetime = try expiration.map(TokenLifetime.parse) ?? config.proton.expiration
         let pass = context.pass

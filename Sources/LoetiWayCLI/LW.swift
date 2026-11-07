@@ -27,6 +27,11 @@ struct LW: AsyncParsableCommand {
     )
 }
 
+struct LoginOptions: ParsableArguments {
+    @Flag(name: .customLong("keep-login"), help: "Danach bei Proton Pass angemeldet bleiben. Standard: abmelden, damit kein anderer Prozess dein Konto benutzen kann.")
+    var keepLogin = false
+}
+
 struct CommonOptions: ParsableArguments {
     @Option(help: "Verzeichnis, unter dem die Kunden liegen (Standard: root aus der Konfiguration).")
     var root: String?
@@ -53,6 +58,7 @@ struct AppContext {
         if let tokenVault = options.tokenVault {
             global.tokenVault = tokenVault
         }
+        try global.validate()
         let runner = ProcessRunner(executable: environment["LW_PASS_CLI"] ?? "pass-cli")
         return AppContext(global: global, pass: PassCLI(runner: runner))
     }
@@ -68,6 +74,18 @@ struct AppContext {
             throw LWError("\(customer.file.path):\n\(error)")
         }
         return customer
+    }
+
+    /// Logs out of the account after a command that needed it. The login is shared by every
+    /// process of this macOS user, so an agent started outside Asylum could otherwise use it.
+    func endSession(keep: Bool) {
+        guard !keep, (try? pass.session())?.isAccount == true else { return }
+        do {
+            try pass.logout()
+            Console.error("Von Proton Pass abgemeldet (--keep-login, um angemeldet zu bleiben).")
+        } catch {
+            Console.error("Abmelden fehlgeschlagen: \(error)\nVon Hand: pass-cli logout")
+        }
     }
 
     /// Stores a freshly issued token. The old one is already invalid at this point, so if

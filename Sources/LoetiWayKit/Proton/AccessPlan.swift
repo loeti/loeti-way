@@ -44,6 +44,9 @@ public struct AccessPlan: Equatable, Sendable {
             plan.actions.append(.revoke(vault: grant.name, shareID: grant.shareID, role: grant.role))
         }
 
+        for grant in vaultGrants where !VaultNaming.isAgentVault(grant.name) {
+            plan.notes.append("Vault '\(grant.name)' heisst nicht \(VaultNaming.agentPrefix)…, war aber freigegeben. lw apply entzieht ihn; mit lw audit prüfen, was der Agent gelesen hat")
+        }
         for grant in actual where grant.target != .vault {
             plan.notes.append("\(grant.target.rawValue) '\(grant.name)' (\(grant.role)) steht nicht in der Konfiguration; lw lässt den Zugriff unverändert")
         }

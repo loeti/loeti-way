@@ -12,7 +12,7 @@ struct ConfigTests {
         #expect(config.protonTokenItem == "KundeA Proton Agent")
         #expect(config.githubTokenItem == "KundeA GitHub PAT")
         #expect(config.proton.expiration == .oneMonth)
-        #expect(config.proton.vaults == [VaultGrant(name: "KundeA"), VaultGrant(name: "KundeA Infra", role: .editor)])
+        #expect(config.proton.vaults == [VaultGrant(name: "agent-kundea"), VaultGrant(name: "agent-kundea-infra", role: .editor)])
         #expect(config.github?.expiresInDays == 90)
         #expect(config.github?.permissions == ["contents": "write", "pull_requests": "write"])
         #expect(config.github?.repositories == ["web", "api"])
@@ -48,9 +48,41 @@ struct ConfigTests {
 
     @Test("the token vault can never be granted to an agent")
     func tokenVaultIsRejected() throws {
-        let config = CustomerConfig(customer: "A", proton: ProtonSettings(vaults: [VaultGrant(name: "Agent Tokens")]))
-        #expect(throws: LWError.self) { try config.validate(tokenVault: "Agent Tokens") }
-        try CustomerConfig.parse(Fixtures.kundeA).validate(tokenVault: "Agent Tokens")
+        let config = CustomerConfig(customer: "A", proton: ProtonSettings(vaults: [VaultGrant(name: "lw-tokens")]))
+        #expect(throws: LWError.self) { try config.validate(tokenVault: "lw-tokens") }
+        try CustomerConfig.parse(Fixtures.kundeA).validate(tokenVault: "lw-tokens")
+    }
+
+    @Test("only agent- vaults can be granted", arguments: [
+        "KundeA", "Agent-kundea", "agent-", "agent-Kunde A", "agent-kunde--a", "agent-kunde-", "lw-kundea", "agent-kundeä",
+    ])
+    func nonAgentVaultIsRejected(name: String) {
+        let config = CustomerConfig(customer: "KundeA", proton: ProtonSettings(vaults: [VaultGrant(name: name)]))
+        #expect(throws: LWError.self) { try config.validate(tokenVault: "lw-tokens") }
+    }
+
+    @Test("agent- vaults in lowercase words pass", arguments: ["agent-kundea", "agent-kunde-a-infra", "agent-2026"])
+    func agentVaultIsAccepted(name: String) throws {
+        let config = CustomerConfig(customer: "KundeA", proton: ProtonSettings(vaults: [VaultGrant(name: name)]))
+        try config.validate(tokenVault: "lw-tokens")
+    }
+
+    @Test("the rejection suggests an agent- name")
+    func vaultSuggestion() {
+        let config = CustomerConfig(customer: "KundeA", proton: ProtonSettings(vaults: [VaultGrant(name: "KundeA Infra")]))
+        #expect(throws: LWError("Vault 'KundeA Infra' kann keinem Agent freigegeben werden: Vaults für Agents heissen agent-<name>, z.B. agent-kundea-infra")) {
+            try config.validate(tokenVault: "lw-tokens")
+        }
+    }
+
+    @Test("the token vault must start with lw-")
+    func tokenVaultName() throws {
+        let root = URL(fileURLWithPath: "/Code")
+        try GlobalConfig(root: root).validate()
+        try GlobalConfig(root: root, tokenVault: "lw-agent-tokens").validate()
+        for name in ["Agent Tokens", "agent-tokens", "tokens", "lw-", "lw-Tokens"] {
+            #expect(throws: LWError.self) { try GlobalConfig(root: root, tokenVault: name).validate() }
+        }
     }
 
     @Test("validation collects every problem")
@@ -61,11 +93,11 @@ struct ConfigTests {
             github: GitHubSettings(owner: "", expiresInDays: 400, permissions: ["contents": "full"])
         )
         do {
-            try config.validate(tokenVault: "Agent Tokens")
+            try config.validate(tokenVault: "lw-tokens")
             Issue.record("expected an error")
         } catch {
             let message = "\(error)"
-            for fragment in ["enthält '/'", "mehrfach", "github.owner", "expires_in_days", "contents"] {
+            for fragment in ["enthält '/'", "mehrfach", "agent-<name>", "github.owner", "expires_in_days", "contents"] {
                 #expect(message.contains(fragment), "missing: \(fragment)")
             }
         }
@@ -86,7 +118,7 @@ struct ConfigTests {
         let environment = ["HOME": home.path]
         var config = try GlobalConfig.load(environment: environment)
         #expect(config.root.path == GlobalConfig.defaultRoot)
-        #expect(config.tokenVault == "Agent Tokens")
+        #expect(config.tokenVault == "lw-tokens")
 
         try Fixtures.write("root: ~/Code\ntoken_vault: Tokens\nwarn_days: 30\n",
                            to: home.appendingPathComponent(".config/loeti-way/config.yaml"))

@@ -33,7 +33,9 @@ struct StatusCommand: AsyncParsableCommand {
             return
         }
 
-        try context.pass.ensureUserSession()
+        let session = try context.pass.session()
+        print("Proton Pass: \(session)\n")
+        try session.requireAccount()
         let collector = StatusCollector(
             pass: context.pass,
             store: context.store,

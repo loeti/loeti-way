@@ -26,14 +26,14 @@ struct PassCLITests {
         let runner = FakeRunner()
         runner.on(["pat", "access", "list-access"], stdout: """
         [
-          {"type": "vault", "share_id": "s1", "role": "Viewer", "vault_name": "KundeA"},
+          {"type": "vault", "share_id": "s1", "role": "Viewer", "vault_name": "agent-kundea"},
           {"type": "item", "share_id": "s2", "role": "Editor", "expire_time": 1, "item_title": "DB", "item_id": "i1"},
           {"type": "vault", "share_id": "s3", "role": {"Custom": {"name": "x", "permission": 7}}, "vault_name": "Odd"}
         ]
         """)
         let grants = try PassCLI(runner: runner).listAccess(agentID: "pat_1")
         #expect(grants == [
-            AccessGrant(target: .vault, shareID: "s1", name: "KundeA", role: "viewer"),
+            AccessGrant(target: .vault, shareID: "s1", name: "agent-kundea", role: "viewer"),
             AccessGrant(target: .item, shareID: "s2", name: "DB", role: "editor"),
             AccessGrant(target: .vault, shareID: "s3", name: "Odd", role: "custom"),
         ])
@@ -80,6 +80,35 @@ struct PassCLITests {
         #expect(throws: LWError.self) { try PassCLI(runner: runner).ensureUserSession() }
     }
 
+    @Test("the session tells account, token and logged out apart")
+    func sessionKinds() throws {
+        let runner = FakeRunner()
+        let pass = PassCLI(runner: runner)
+        runner.on(["info"], stdout: "- Release track: stable\n- ID: u1\n- Username: loeti\n")
+        #expect(try pass.session() == .account(username: "loeti"))
+        #expect("\(try pass.session())".contains("loeti"))
+
+        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: asylum-kundea\n")
+        #expect(try pass.session() == .token(name: "asylum-kundea"))
+        #expect(throws: LWError.self) { try pass.session().requireAccount() }
+
+        runner.on(["info"], status: 1, stderr: "not logged in")
+        #expect(try pass.session() == .loggedOut)
+
+        runner.on(["info"], status: 127)
+        #expect(throws: LWError.self) { try pass.session() }
+    }
+
+    @Test("logout calls pass-cli logout")
+    func logout() throws {
+        let runner = FakeRunner()
+        try PassCLI(runner: runner).logout()
+        #expect(runner.mutations == ["logout"])
+
+        runner.on(["logout"], status: 1, stderr: "boom")
+        #expect(throws: LWError.self) { try PassCLI(runner: runner).logout() }
+    }
+
     @Test("item list skips nothing but marks trashed items")
     func listItems() throws {
         let runner = FakeRunner()
@@ -90,7 +119,7 @@ struct PassCLITests {
           {"id": "i3", "share_id": "s", "vault_id": "v", "state": {"weird": 1}, "title": "Unknown state", "item_type": "note"}
         ], "folders": []}
         """)
-        let items = try PassCLI(runner: runner).listItems(vault: "Agent Tokens")
+        let items = try PassCLI(runner: runner).listItems(vault: "lw-tokens")
         #expect(items.map(\.isActive) == [true, false, true])
     }
 }

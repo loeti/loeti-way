@@ -147,7 +147,7 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
     }
 
     /// Checks what YAML decoding can't. `tokenVault` holds the tokens of all customers, so an
-    /// agent must never get access to it.
+    /// agent must never get access to it; only `agent-` vaults may be granted (`VaultNaming`).
     public func validate(tokenVault: String) throws {
         var problems: [String] = []
         if customer.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -163,8 +163,12 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
         for grant in proton.vaults where !seen.insert(grant.name).inserted {
             problems.append("Vault '\(grant.name)' steht mehrfach in 'proton.vaults'")
         }
-        if proton.vaults.contains(where: { $0.name == tokenVault }) {
-            problems.append("Der Token-Vault '\(tokenVault)' darf nicht in 'proton.vaults' stehen: der Agent könnte sonst die Tokens aller Kunden lesen")
+        for grant in proton.vaults {
+            if grant.name == tokenVault {
+                problems.append("Der Token-Vault '\(tokenVault)' darf nicht in 'proton.vaults' stehen: der Agent könnte sonst die Tokens aller Kunden lesen")
+            } else if let problem = VaultNaming.problem(agentVault: grant.name) {
+                problems.append(problem)
+            }
         }
         if let github {
             if github.owner.trimmingCharacters(in: .whitespaces).isEmpty {

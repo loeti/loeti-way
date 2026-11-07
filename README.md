@@ -22,9 +22,27 @@ Beide Tokens liegen als Notizen in einem eigenen **Token-Vault**, auf den kein A
 └── loeti/.loeti-way.yaml
 
 Proton Pass
-├── KundeA, KundeA Infra, …     die Agents bekommen Zugriff, je nach Konfiguration
-└── Agent Tokens                nur dein Konto: "<Kunde> Proton Agent", "<Kunde> GitHub PAT"
+├── agent-kundea, agent-kundea-infra, …   die Agents bekommen Zugriff, je nach Konfiguration
+├── lw-tokens                             nur dein Konto: "<Kunde> Proton Agent", "<Kunde> GitHub PAT"
+└── alle anderen                          privat, lw gibt sie nie frei
 ```
+
+## Vault-Namen
+
+Zwei Vorsilben sind reserviert, `lw` setzt sie durch:
+
+| Vorsilbe | Wer liest | Beispiele |
+|---|---|---|
+| `agent-` | der Agent des Kunden | `agent-kundea`, `agent-kundea-infra` |
+| `lw-` | nur dein Konto, nie ein Agent | `lw-tokens` |
+| keine davon | privat | `Persönlich`, `Firma`, … |
+
+- Nach der Vorsilbe folgen Kleinbuchstaben und Ziffern, mit `-` getrennt. So braucht es weder in der Shell noch in `pass://`-Referenzen Anführungszeichen.
+- Der Kundenteil entspricht dem Kundennamen in Kleinbuchstaben, `lw init` trägt `agent-<kunde>` ein.
+- Einen zweiten Vault (`agent-kundea-infra`) nur anlegen, wenn er Einträge anderer Vertraulichkeit enthält: Ein Agent bekommt immer den ganzen Vault.
+- `lw` lehnt in `proton.vaults` jeden Vault ohne `agent-` ab und verlangt für den Token-Vault `lw-`.
+- Ist einem Agent ein anderer Vault freigegeben (z.B. von Hand in Proton), meldet `lw status` das, und `lw apply` entzieht ihn.
+- Kunden-Vaults legt `lw` nicht an: `pass-cli vault create --name agent-kundea`.
 
 ## Kundenkonfiguration
 
@@ -36,9 +54,9 @@ proton:
   # agent: asylum-kundea        # Standard: asylum-<kunde>
   expiration: 3m                # 1w, 1m, 3m, 6m, 1y
   vaults:
-    - name: KundeA
+    - name: agent-kundea
       role: viewer              # viewer (Standard), editor, manager
-    - name: KundeA Infra
+    - name: agent-kundea-infra
       role: viewer
 
 github:                         # optional
@@ -50,7 +68,7 @@ github:                         # optional
     pull_requests: write
 ```
 
-`lw` lehnt eine Konfiguration ab, die dem Agent den Token-Vault freigeben würde.
+`lw` lehnt eine Konfiguration ab, die dem Agent den Token-Vault oder einen Vault ohne `agent-` freigeben würde.
 
 ## Globale Einstellungen
 
@@ -58,7 +76,7 @@ github:                         # optional
 
 ```yaml
 root: /Volumes/Code          # hier sucht lw nach Kunden (bis 3 Ebenen tief)
-token_vault: Agent Tokens
+token_vault: lw-tokens       # muss mit lw- beginnen
 warn_days: 14                # ab hier meldet `lw status` ablaufende Tokens
 ```
 
@@ -68,9 +86,11 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 
 `lw` läuft auf dem Host, mit deinem eigenen `pass-cli login`. Ohne Kundenangabe gilt die `.loeti-way.yaml` im aktuellen Verzeichnis oder darüber.
 
+`apply`, `renew` und `github` melden dich danach bei Proton Pass ab, auch wenn sie fehlschlagen. Mit `--keep-login` bleibst du angemeldet. `status` zeigt zuoberst, wer angemeldet ist.
+
 | Kommando | Wirkung |
 |---|---|
-| `status [kunde] [--offline]` | Alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
+| `status [kunde] [--offline]` | Wer bei `pass-cli` angemeldet ist; alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
 | `init [ordner] [--github-owner org]` | `.loeti-way.yaml` und `.envrc` anlegen, bestehende Dateien bleiben |
 | `apply [kunde] [--dry-run] [-y]` | Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
 | `renew [kunde] [--expiration 6m] [-y]` | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
@@ -82,7 +102,8 @@ Item- und Ordner-Freigaben, die nicht in der Konfiguration stehen, zeigt `lw` an
 ## Neuer Kunde
 
 ```sh
-pass-cli vault create --name "Agent Tokens"      # einmalig
+pass-cli vault create --name lw-tokens          # einmalig
+pass-cli vault create --name agent-kundea
 cd /Volumes/Code/customers/KundeA
 lw init --github-owner kundea-org
 $EDITOR .loeti-way.yaml
@@ -103,6 +124,7 @@ Nach `renew` oder `github`: `direnv reload` in offenen Shells, dann alle Asylum-
 
 ## Sicherheit
 
+- Die `pass-cli`-Anmeldung gilt für deinen ganzen macOS-Benutzer, nicht pro Shell: Jeder Prozess, auch ein Agent ausserhalb von Asylum, kann sie benutzen. Darum meldet `lw` dich nach Änderungen ab. Wer gerade angemeldet ist: `pass-cli info` (`Username` = dein Konto, `Personal Access Token` = ein Agent).
 - Tokens gehen nie als Argument an `pass-cli` (sichtbar in `ps`), sondern über stdin.
 - Ein neuer Token wird zuerst abgelegt, erst dann wird die alte Notiz gelöscht. Scheitert das Ablegen, zeigt `lw` den Token einmal an, statt ihn zu verlieren.
 - Vor `apply` und `renew` prüft `lw`, ob es den Token-Vault gibt.
