@@ -17,7 +17,10 @@ public struct CustomerStatus: Sendable {
     /// nil if the agent is missing or its grants couldn't be read.
     public var plan: AccessPlan?
     public var accessError: String?
+    /// The customer-wide PAT.
     public var github: GitHubState = .notConfigured
+    /// Project PATs, in the order of `customer.projects`.
+    public var projects: [(name: String, state: GitHubState)] = []
 
     public init(customer: LoadedCustomer) {
         self.customer = customer
@@ -29,12 +32,15 @@ public struct CustomerStatus: Sendable {
             return Format.daysLeft(until: date, now: now) <= warnDays
         }
         if configError != nil || accessError != nil || agent == nil { return true }
+        if !customer.projectFailures.isEmpty { return true }
         if protonTokenStored == false || plan?.isEmpty == false { return true }
         if expiresSoon(agent?.expires) { return true }
-        switch github {
-        case .notConfigured, .notChecked: return false
-        case .tokenMissing, .failed: return true
-        case let .ok(info): return expiresSoon(info.expires)
+        return ([github] + projects.map(\.state)).contains { state in
+            switch state {
+            case .notConfigured, .notChecked: false
+            case .tokenMissing, .failed: true
+            case let .ok(info): expiresSoon(info.expires)
+            }
         }
     }
 
@@ -68,17 +74,23 @@ public struct CustomerStatus: Sendable {
         case nil: lines.append("          Token-Vault '\(tokenVault)' nicht lesbar")
         }
 
-        switch github {
-        case .notConfigured:
-            lines.append("  GitHub  nicht konfiguriert")
-        case .tokenMissing:
-            lines.append("  GitHub  Token fehlt in '\(tokenVault)' / '\(config.githubTokenItem)' → lw github \(name)")
-        case .notChecked:
-            lines.append("  GitHub  Token gespeichert (nicht geprüft)")
-        case let .ok(info):
-            lines.append("  GitHub  @\(info.login): \(Format.expiry(info.expires, now: now))")
-        case let .failed(message):
-            lines.append("  GitHub  \(message) → lw github \(name)")
+        func line(_ state: GitHubState, label: String, item: String, command: String) -> String {
+            switch state {
+            case .notConfigured: "  GitHub  \(label)nicht konfiguriert"
+            case .tokenMissing: "  GitHub  \(label)Token fehlt in '\(tokenVault)' / '\(item)' → \(command)"
+            case .notChecked: "  GitHub  \(label)Token gespeichert (nicht geprüft)"
+            case let .ok(info): "  GitHub  \(label)@\(info.login): \(Format.expiry(info.expires, now: now))"
+            case let .failed(message): "  GitHub  \(label)\(message) → \(command)"
+            }
+        }
+        if config.github != nil || (projects.isEmpty && customer.projectFailures.isEmpty) {
+            lines.append(line(github, label: "", item: config.githubTokenItem, command: "lw github \(name)"))
+        }
+        for (project, (_, state)) in zip(customer.projects, projects) {
+            lines.append(line(state, label: "\(project.name): ", item: project.github.tokenItem, command: "lw github \(name) --project \(project.name)"))
+        }
+        for failure in customer.projectFailures {
+            lines.append("  ✗ \(failure.message.replacingOccurrences(of: "\n", with: "\n    "))")
         }
         return lines.joined(separator: "\n")
     }
@@ -120,22 +132,24 @@ public struct StatusCollector {
                 }
             }
 
-            if config.github == nil {
-                status.github = .notConfigured
-            } else if let items, !items.contains(where: { $0.title == config.githubTokenItem }) {
-                status.github = .tokenMissing
-            } else if let checker {
-                do {
-                    let token = try store.read(title: config.githubTokenItem)
-                    status.github = .ok(try await checker.check(token: token))
-                } catch {
-                    status.github = .failed("\(error)")
-                }
-            } else {
-                status.github = .notChecked
+            status.github = config.github == nil ? .notConfigured : await githubState(item: config.githubTokenItem, items: items)
+            for project in customer.projects {
+                status.projects.append((project.name, await githubState(item: project.github.tokenItem, items: items)))
             }
             result.append(status)
         }
         return result
+    }
+
+    private func githubState(item: String, items: [VaultItem]?) async -> CustomerStatus.GitHubState {
+        if let items, !items.contains(where: { $0.title == item }) {
+            return .tokenMissing
+        }
+        guard let checker else { return .notChecked }
+        do {
+            return .ok(try await checker.check(token: try store.read(title: item)))
+        } catch {
+            return .failed("\(error)")
+        }
     }
 }

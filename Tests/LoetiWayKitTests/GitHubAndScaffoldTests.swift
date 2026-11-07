@@ -7,7 +7,8 @@ struct GitHubTests {
     @Test("the creation URL carries name, owner, expiry and permissions")
     func creationURL() throws {
         let settings = GitHubSettings(owner: "kundea-org", expiresInDays: 30, permissions: ["pull_requests": "write", "contents": "read"])
-        let url = GitHubPAT.creationURL(customer: "KundeA", settings: settings)
+        let target = GitHubTarget(customer: "KundeA", project: nil, settings: settings, tokenItem: "KundeA GitHub PAT", tokenName: "KundeA Asylum", directory: URL(fileURLWithPath: "/Code/KundeA"))
+        let url = GitHubPAT.creationURL(target: target)
         let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
         #expect(url.path == "/settings/personal-access-tokens/new")

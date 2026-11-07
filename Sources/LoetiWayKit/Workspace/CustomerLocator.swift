@@ -16,17 +16,65 @@ public enum CustomerLocator {
     /// Directories that never contain customer folders but can be huge.
     static let skippedNames: Set<String> = ["node_modules", "Pods", "build", "target", "DerivedData"]
 
-    public static func load(file: URL) throws -> LoadedCustomer {
-        let text: String
+    /// Loads a customer config and the project configs up to `projectDepth` levels below it.
+    public static func load(file: URL, projectDepth: Int = 2) throws -> LoadedCustomer {
+        let config: CustomerConfig
         do {
-            text = try String(contentsOf: file, encoding: .utf8)
+            config = try CustomerConfig.parse(try read(file))
+        } catch {
+            throw LWError("\(file.path): \(error)")
+        }
+        var customer = LoadedCustomer(config: config, file: file)
+        for projectFile in findProjects(below: customer.directory, maxDepth: projectDepth) {
+            do {
+                let project = try ProjectConfig.resolve(try read(projectFile), folder: projectFile.deletingLastPathComponent(), customer: config)
+                let taken = customer.githubTargets.map(\.tokenItem)
+                guard !taken.contains(project.github.tokenItem) else {
+                    throw LWError("Notiz '\(project.github.tokenItem)' ist schon vergeben; 'github.token_item' anders setzen")
+                }
+                customer.projects.append(project)
+            } catch {
+                customer.projectFailures.append(Failure(file: projectFile, message: "\(projectFile.path): \(error)"))
+            }
+        }
+        return customer
+    }
+
+    private static func read(_ file: URL) throws -> String {
+        do {
+            return try String(contentsOf: file, encoding: .utf8)
         } catch {
             throw LWError("\(file.path) lässt sich nicht lesen: \(error.localizedDescription)")
         }
-        do {
-            return LoadedCustomer(config: try CustomerConfig.parse(text), file: file)
-        } catch {
-            throw LWError("\(file.path): \(error)")
+    }
+
+    /// Project config files below a customer folder (not in it), without descending further.
+    static func findProjects(below directory: URL, maxDepth: Int) -> [URL] {
+        var found: [URL] = []
+        func visit(_ folder: URL, depth: Int) {
+            if depth > 0 {
+                let file = folder.appendingPathComponent(ProjectConfig.fileName)
+                if FileManager.default.fileExists(atPath: file.path) {
+                    found.append(file)
+                    return
+                }
+            }
+            guard depth < maxDepth else { return }
+            for entry in subdirectories(of: folder) { visit(entry, depth: depth + 1) }
+        }
+        visit(directory, depth: 0)
+        return found
+    }
+
+    private static func subdirectories(of directory: URL) -> [URL] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }.filter { entry in
+            guard !skippedNames.contains(entry.lastPathComponent) else { return false }
+            let values = try? entry.resourceValues(forKeys: Set(keys))
+            return values?.isDirectory == true && values?.isSymbolicLink != true
         }
     }
 
@@ -52,14 +100,7 @@ public enum CustomerLocator {
             return
         }
         guard depth < maxDepth else { return }
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
-        ) else { return }
-        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            guard !skippedNames.contains(entry.lastPathComponent) else { continue }
-            let values = try? entry.resourceValues(forKeys: Set(keys))
-            guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+        for entry in subdirectories(of: directory) {
             walk(entry, depth: depth + 1, maxDepth: maxDepth, into: &result)
         }
     }

@@ -8,19 +8,15 @@ import FoundationNetworking
 public enum GitHubPAT {
     public static let listURL = URL(string: "https://github.com/settings/personal-access-tokens")!
 
-    public static func tokenName(customer: String) -> String {
-        "\(customer) Asylum"
-    }
-
-    public static func creationURL(customer: String, settings: GitHubSettings) -> URL {
+    public static func creationURL(target: GitHubTarget) -> URL {
         var components = URLComponents(string: "https://github.com/settings/personal-access-tokens/new")!
         var items = [
-            URLQueryItem(name: "name", value: tokenName(customer: customer)),
-            URLQueryItem(name: "description", value: "Asylum containers for \(customer), managed by lw"),
-            URLQueryItem(name: "target_name", value: settings.owner),
-            URLQueryItem(name: "expires_in", value: String(settings.expiresInDays)),
+            URLQueryItem(name: "name", value: target.tokenName),
+            URLQueryItem(name: "description", value: "Asylum containers for \(target.label), managed by lw"),
+            URLQueryItem(name: "target_name", value: target.settings.owner),
+            URLQueryItem(name: "expires_in", value: String(target.settings.expiresInDays)),
         ]
-        for (permission, level) in settings.permissions.sorted(by: { $0.key < $1.key }) {
+        for (permission, level) in target.settings.permissions.sorted(by: { $0.key < $1.key }) {
             items.append(URLQueryItem(name: permission, value: level))
         }
         components.queryItems = items

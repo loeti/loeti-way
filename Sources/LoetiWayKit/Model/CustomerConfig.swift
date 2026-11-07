@@ -86,19 +86,25 @@ public struct GitHubSettings: Equatable, Sendable, Codable {
     public var repositories: [String]
     /// Title of the note in the token vault. Default: `<customer> GitHub PAT`.
     public var tokenItem: String?
+    /// Name of the token on GitHub. Default: `<customer> Asylum`.
+    public var tokenName: String?
 
-    public init(owner: String, expiresInDays: Int = 90, permissions: [String: String] = [:], repositories: [String] = [], tokenItem: String? = nil) {
+    public static let defaultPermissions = ["contents": "write", "pull_requests": "write"]
+
+    public init(owner: String, expiresInDays: Int = 90, permissions: [String: String] = [:], repositories: [String] = [], tokenItem: String? = nil, tokenName: String? = nil) {
         self.owner = owner
         self.expiresInDays = expiresInDays
         self.permissions = permissions
         self.repositories = repositories
         self.tokenItem = tokenItem
+        self.tokenName = tokenName
     }
 
     enum CodingKeys: String, CodingKey {
         case owner, permissions, repositories
         case expiresInDays = "expires_in_days"
         case tokenItem = "token_item"
+        case tokenName = "token_name"
     }
 
     public init(from decoder: Decoder) throws {
@@ -106,9 +112,25 @@ public struct GitHubSettings: Equatable, Sendable, Codable {
         owner = try container.decode(String.self, forKey: .owner)
         expiresInDays = try container.decodeIfPresent(Int.self, forKey: .expiresInDays) ?? 90
         permissions = try container.decodeIfPresent([String: String].self, forKey: .permissions)
-            ?? ["contents": "write", "pull_requests": "write"]
+            ?? Self.defaultPermissions
         repositories = try container.decodeIfPresent([String].self, forKey: .repositories) ?? []
         tokenItem = try container.decodeIfPresent(String.self, forKey: .tokenItem)
+        tokenName = try container.decodeIfPresent(String.self, forKey: .tokenName)
+    }
+
+    /// Problems with the values; `section` is the YAML path for messages, e.g. `github`.
+    func problems(section: String) -> [String] {
+        var problems: [String] = []
+        if owner.trimmingCharacters(in: .whitespaces).isEmpty {
+            problems.append("'\(section).owner' ist leer")
+        }
+        if !(1...366).contains(expiresInDays) {
+            problems.append("'\(section).expires_in_days' muss zwischen 1 und 366 liegen")
+        }
+        for (name, level) in permissions.sorted(by: { $0.key < $1.key }) where !["read", "write", "admin"].contains(level) {
+            problems.append("'\(section).permissions.\(name)': '\(level)' ist nicht read, write oder admin")
+        }
+        return problems
     }
 }
 
@@ -129,6 +151,14 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
     public var agentName: String { proton.agent ?? "asylum-\(Slug.make(customer))" }
     public var protonTokenItem: String { proton.tokenItem ?? "\(customer) Proton Agent" }
     public var githubTokenItem: String { github?.tokenItem ?? "\(customer) GitHub PAT" }
+    public var githubTokenName: String { github?.tokenName ?? "\(customer) Asylum" }
+
+    /// The customer-wide GitHub PAT, nil without a `github` section.
+    public func githubTarget(directory: URL) -> GitHubTarget? {
+        github.map {
+            GitHubTarget(customer: customer, project: nil, settings: $0, tokenItem: githubTokenItem, tokenName: githubTokenName, directory: directory)
+        }
+    }
 
     public static func parse(_ yaml: String) throws -> CustomerConfig {
         do {
@@ -171,15 +201,7 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
             }
         }
         if let github {
-            if github.owner.trimmingCharacters(in: .whitespaces).isEmpty {
-                problems.append("'github.owner' ist leer")
-            }
-            if !(1...366).contains(github.expiresInDays) {
-                problems.append("'github.expires_in_days' muss zwischen 1 und 366 liegen")
-            }
-            for (name, level) in github.permissions where !["read", "write", "admin"].contains(level) {
-                problems.append("'github.permissions.\(name)': '\(level)' ist nicht read, write oder admin")
-            }
+            problems += github.problems(section: "github")
         }
         if !problems.isEmpty {
             throw LWError(problems.joined(separator: "\n"))
@@ -187,15 +209,73 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
     }
 }
 
-/// A parsed config together with where it was found.
+/// A parsed config together with where it was found, and the projects below it.
 public struct LoadedCustomer: Sendable, Equatable {
     public let config: CustomerConfig
     public let file: URL
+    public var projects: [LoadedProject]
+    /// Project configs below this customer that couldn't be loaded.
+    public var projectFailures: [CustomerLocator.Failure]
 
-    public init(config: CustomerConfig, file: URL) {
+    public init(config: CustomerConfig, file: URL, projects: [LoadedProject] = [], projectFailures: [CustomerLocator.Failure] = []) {
         self.config = config
         self.file = file
+        self.projects = projects
+        self.projectFailures = projectFailures
     }
 
     public var directory: URL { file.deletingLastPathComponent() }
+
+    /// Every GitHub PAT of this customer: the customer-wide one first, then the projects'.
+    public var githubTargets: [GitHubTarget] {
+        (config.githubTarget(directory: directory).map { [$0] } ?? []) + projects.map(\.github)
+    }
+
+    /// The project whose folder is `url` or contains it.
+    public func project(containing url: URL) -> LoadedProject? {
+        let path = url.standardizedFileURL.path
+        return projects.first {
+            let folder = $0.directory.standardizedFileURL.path
+            return path == folder || path.hasPrefix(folder + "/")
+        }
+    }
+
+    /// The PAT `lw github` works on: the named project, else the project around `cwd`, else the
+    /// customer-wide one. Pass `cwd` only when the customer was found from the working directory.
+    public func githubTarget(project name: String?, cwd: URL?) throws -> GitHubTarget {
+        if let name {
+            return try project(named: name).github
+        }
+        if let cwd {
+            if let project = project(containing: cwd) { return project.github }
+            let path = cwd.standardizedFileURL.path
+            if let failure = projectFailures.first(where: {
+                let folder = $0.file.deletingLastPathComponent().standardizedFileURL.path
+                return path == folder || path.hasPrefix(folder + "/")
+            }) {
+                // Never fall back to the customer's wider token inside a broken project.
+                throw LWError(failure.message)
+            }
+        }
+        if let target = config.githubTarget(directory: directory) { return target }
+        let known = projects.map(\.name).joined(separator: ", ")
+        throw LWError("\(config.customer) hat keinen github-Abschnitt in \(CustomerConfig.fileName)"
+            + (known.isEmpty ? "" : ". Projekt-PATs: \(known) (--project <name>)"))
+    }
+
+    /// `name` matches the project name or its folder name, case-insensitively.
+    public func project(named name: String) throws -> LoadedProject {
+        let matches = projects.filter {
+            $0.name.caseInsensitiveCompare(name) == .orderedSame
+                || $0.directory.lastPathComponent.caseInsensitiveCompare(name) == .orderedSame
+        }
+        if matches.count == 1 { return matches[0] }
+        if let failure = projectFailures.first(where: {
+            $0.file.deletingLastPathComponent().lastPathComponent.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            throw LWError(failure.message)
+        }
+        let known = projects.map(\.name).joined(separator: ", ")
+        throw LWError("Kein Projekt '\(name)' bei \(config.customer)" + (known.isEmpty ? " (es gibt noch keine, `lw init --project`)" : ". Vorhanden: \(known)"))
+    }
 }

@@ -19,6 +19,9 @@ struct StatusCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
+        // Shown first and always: who can use pass-cli matters even without any customer.
+        let session = try context.pass.session()
+        print("Proton Pass: \(session)\n")
         let customers: [LoadedCustomer]
         var failures: [CustomerLocator.Failure] = []
         if let customer {
@@ -33,8 +36,6 @@ struct StatusCommand: AsyncParsableCommand {
             return
         }
 
-        let session = try context.pass.session()
-        print("Proton Pass: \(session)\n")
         try session.requireAccount()
         let collector = StatusCollector(
             pass: context.pass,

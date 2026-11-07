@@ -17,13 +17,16 @@ Beide Tokens liegen als Notizen in einem eigenen **Token-Vault**, auf den kein A
 │   │   ├── .envrc              pass://-Referenzen auf den Token-Vault
 │   │   ├── projekt-a1/
 │   │   └── projekt-a2/
+│   │       ├── .loeti-way-project.yaml   optional: eigener GitHub-PAT nur für dieses Repo
+│   │       └── .envrc                    lädt die .envrc des Kunden, ersetzt den GitHub-Token
 │   └── KundeB/…
 ├── firma/.loeti-way.yaml
 └── loeti/.loeti-way.yaml
 
 Proton Pass
 ├── agent-kundea, agent-kundea-infra, …   die Agents bekommen Zugriff, je nach Konfiguration
-├── lw-tokens                             nur dein Konto: "<Kunde> Proton Agent", "<Kunde> GitHub PAT"
+├── lw-tokens                             nur dein Konto: "<Kunde> Proton Agent", "<Kunde> GitHub PAT",
+│                                         "<Kunde> <Projekt> GitHub PAT"
 └── alle anderen                          privat, lw gibt sie nie frei
 ```
 
@@ -70,6 +73,26 @@ github:                         # optional
 
 `lw` lehnt eine Konfiguration ab, die dem Agent den Token-Vault oder einen Vault ohne `agent-` freigeben würde.
 
+## Projekt-PAT
+
+Ein Fine-grained PAT hat für alle ausgewählten Repos dieselben Rechte und gehört genau einem Owner. "Alle Kunden-Repos lesen, nur in einem schreiben" geht mit einem Token nicht. Darum gibt es zwei Stufen:
+
+- **Kunde** (`github` in `.loeti-way.yaml`): ein PAT für alle Projekte des Kunden. Ein Agent in Projekt A kann damit auch in Projekt B schreiben.
+- **Projekt** (`.loeti-way-project.yaml` im Projektordner, optional): ein eigener PAT, der im Projektordner den des Kunden ersetzt. Der Proton-Agent bleibt der des Kunden.
+
+```yaml
+# /Volumes/Code/customers/KundeA/projekt-a2/.loeti-way-project.yaml
+project: projekt-a2             # Standard: Ordnername
+github:                         # fehlende Werte kommen vom Kunden
+  owner: kundea-org             # lw init --project schreibt ihn immer hin
+  token_name: kundea_projekt-a2_PAT   # Name auf GitHub, Standard: "<Kunde> <Projekt> Asylum"
+  repositories: [projekt-a2]    # Standard: [<projekt>]
+```
+
+`lw init --project` legt die Datei und eine `.envrc` an und trägt beide in `.git/info/exclude` ein, falls der Ordner ein git-Repo ist. Die `.envrc` lädt zuerst die des Kunden (`source_up_if_exists`) und setzt dann `ASYLUM_GH_TOKEN` neu. Fehlt der Projekt-Token, bleibt die Variable leer; es gibt keinen Rückfall auf den breiteren Kunden-PAT. `lw` sucht Projekte bis 2 Ebenen unter dem Kundenordner.
+
+`token_name` gibt es auch beim Kunden. Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
+
 ## Globale Einstellungen
 
 `~/.config/loeti-way/config.yaml`, alles optional:
@@ -91,10 +114,10 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 | Kommando | Wirkung |
 |---|---|
 | `status [kunde] [--offline]` | Wer bei `pass-cli` angemeldet ist; alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
-| `init [ordner] [--github-owner org]` | `.loeti-way.yaml` und `.envrc` anlegen, bestehende Dateien bleiben |
+| `init [ordner] [--github-owner org] [--project]` | `.loeti-way.yaml` (bzw. mit `--project` `.loeti-way-project.yaml`) und `.envrc` anlegen, bestehende Dateien bleiben |
 | `apply [kunde] [--dry-run] [-y]` | Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
 | `renew [kunde] [--expiration 6m] [-y]` | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
-| `github [kunde] [--new] [--no-open]` | GitHub-Formular öffnen (vorausgefüllt bzw. "Regenerate"), Token einfügen, prüfen, ablegen |
+| `github [kunde] [--project name] [--new] [--no-open]` | GitHub-Formular öffnen (vorausgefüllt bzw. "Regenerate"), Token einfügen, prüfen, ablegen. Ohne Kundenangabe gilt das Projekt, in dem du gerade bist |
 | `audit [kunde] [--limit 50]` | Was der Agent gelesen hat, mit Begründung (`pass-cli agent monitor`) |
 
 Item- und Ordner-Freigaben, die nicht in der Konfiguration stehen, zeigt `lw` an, ändert sie aber nicht.
@@ -133,5 +156,5 @@ Nach `renew` oder `github`: `direnv reload` in offenen Shells, dann alle Asylum-
 
 ```sh
 swift build -c release
-cp .build/release/lw /usr/local/bin/
+cp .build/release/lw /Volumes/Tools/bin/      # oder ein anderer Ordner im PATH
 ```
