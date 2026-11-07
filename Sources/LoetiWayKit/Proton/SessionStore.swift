@@ -59,9 +59,14 @@ public struct SessionStore {
         return pass
     }
 
+    /// Fails closed: a session that doesn't name its agent is refused too.
     static func check(_ agent: String?, expected: String) throws {
-        guard let agent, agent != expected else { return }
-        throw LWError("Angemeldet ist Agent '\(agent)', erwartet '\(expected)'. Der Token gehört zu einem anderen Agent; nichts gelesen.")
+        guard let agent else {
+            throw LWError("pass-cli info nennt den angemeldeten Agent nicht, erwartet '\(expected)'; nichts gelesen.")
+        }
+        guard agent == expected else {
+            throw LWError("Angemeldet ist Agent '\(agent)', erwartet '\(expected)'. Der Token gehört zu einem anderen Agent; nichts gelesen.")
+        }
     }
 
     /// Logs out (as far as possible) and deletes the directory.

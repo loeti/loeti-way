@@ -47,7 +47,7 @@ Proton Pass
 | `agent-<kunde>` | Agent des Kunden | bleibt | Werte aus `env:` |
 | `account` | dein Konto, Login im Browser | nur während des Befehls | `apply`, `renew`, `github` (zum Ablegen), `audit`, `status`, `host --setup/--renew` |
 
-Eine `.loeti-way.yaml` kann in einem Ordner liegen, in den ein Agent schreibt, und sie bestimmt, welche Notizen gelesen werden. Darum gilt ein Kunde erst, wenn du ihn mit `lw apply` bestätigt hast: `lw` trägt Ordner, Kundenname, Agent und Notizen in `customers.yaml` ein. `lw env` und alle anderen Befehle lehnen eine Konfiguration ab, die dort fehlt oder davon abweicht. Nach jedem Anmelden prüft `lw` ausserdem, ob wirklich der erwartete Agent angemeldet ist.
+Eine `.loeti-way.yaml` kann in einem Ordner liegen, in den ein Agent schreibt, und sie bestimmt, welche Notizen gelesen werden. Darum gilt ein Kunde erst, wenn du ihn mit `lw apply` bestätigt hast: `lw` trägt Ordner, Kundenname, Agent, Notizen, Vaults und `env:` in `customers.yaml` ein. `lw env` und alle anderen Befehle lehnen eine Konfiguration ab, die dort fehlt oder davon abweicht. Nach jedem Anmelden prüft `lw` ausserdem, ob wirklich der erwartete Agent angemeldet ist.
 
 Startest du auf dem Mac aus Versehen einen Agent, findet `pass-cli` keine Anmeldung, und in der Umgebung liegen nur die Werte des Ordners. Ein Prozess, der es darauf anlegt, kann `host-token` lesen und damit die Tokens aller Kunden, aber nicht dein Konto. Jeder Zugriff des Host-Agents steht im Audit-Log: `lw audit --host`.
 

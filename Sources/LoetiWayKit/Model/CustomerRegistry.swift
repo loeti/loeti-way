@@ -14,13 +14,20 @@ public struct CustomerRegistry: Equatable, Sendable {
         public var agent: String
         public var protonTokenItem: String
         public var githubTokenItem: String?
+        /// `name:role` per granted vault.
+        public var vaults: [String]
+        /// Variable name → reference, as in `env:`.
+        public var env: [String: String]
 
-        public init(directory: String, customer: String, agent: String, protonTokenItem: String, githubTokenItem: String?) {
+        public init(directory: String, customer: String, agent: String, protonTokenItem: String, githubTokenItem: String?,
+                    vaults: [String] = [], env: [String: String] = [:]) {
             self.directory = directory
             self.customer = customer
             self.agent = agent
             self.protonTokenItem = protonTokenItem
             self.githubTokenItem = githubTokenItem
+            self.vaults = vaults
+            self.env = env
         }
 
         public init(_ loaded: LoadedCustomer) {
@@ -29,12 +36,14 @@ public struct CustomerRegistry: Equatable, Sendable {
                 customer: loaded.config.customer,
                 agent: loaded.config.agentName,
                 protonTokenItem: loaded.config.protonTokenItem,
-                githubTokenItem: loaded.config.github == nil ? nil : loaded.config.githubTokenItem
+                githubTokenItem: loaded.config.github == nil ? nil : loaded.config.githubTokenItem,
+                vaults: loaded.config.proton.vaults.map { "\($0.name):\($0.role.rawValue)" }.sorted(),
+                env: loaded.config.env ?? [:]
             )
         }
 
         enum CodingKeys: String, CodingKey {
-            case directory, customer, agent
+            case directory, customer, agent, vaults, env
             case protonTokenItem = "proton_token_item"
             case githubTokenItem = "github_token_item"
         }
@@ -116,6 +125,12 @@ public struct CustomerRegistry: Equatable, Sendable {
         if old.protonTokenItem != new.protonTokenItem { result.append("Proton-Notiz: \(old.protonTokenItem) → \(new.protonTokenItem)") }
         if old.githubTokenItem != new.githubTokenItem {
             result.append("GitHub-Notiz: \(old.githubTokenItem ?? "keine") → \(new.githubTokenItem ?? "keine")")
+        }
+        if old.vaults != new.vaults {
+            result.append("Vaults: \(old.vaults.joined(separator: ", ")) → \(new.vaults.joined(separator: ", "))")
+        }
+        for name in Set(old.env.keys).union(new.env.keys).sorted() where old.env[name] != new.env[name] {
+            result.append("env.\(name): \(old.env[name] ?? "–") → \(new.env[name] ?? "–")")
         }
         return result
     }

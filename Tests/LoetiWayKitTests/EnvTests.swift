@@ -158,6 +158,19 @@ struct EnvTests {
         #expect(value(export, "ASYLUM_GH_TOKEN") == .unset)
         #expect(export.warnings.contains { $0.contains("weicht von der Registrierung ab") })
         #expect(!runner.calls.contains { $0.arguments.starts(with: ["item", "view"]) })
+
+        // Redirecting an env value needs a new confirmation as well.
+        try Fixtures.write(Self.customerYAML.replacingOccurrences(of: "agent-kundea/Maven", with: "agent-kundea-infra/Deploy"), to: file)
+        let changed = try CustomerLocator.load(file: file)
+        #expect(throws: LWError.self) { try registered.verify(changed) }
+        #expect(registered.changes(for: changed).contains { $0.hasPrefix("env.MAVEN_PASSWORD") })
+    }
+
+    @Test("a session that doesn't name its agent is refused")
+    func unnamedAgent() throws {
+        #expect(throws: LWError.self) { try SessionStore.check(nil, expected: "lw-host") }
+        #expect(throws: LWError.self) { try SessionStore.check("asylum-kundea", expected: "lw-host") }
+        try SessionStore.check("lw-host", expected: "lw-host")
     }
 
     @Test("a session of another agent is refused before anything is read")
