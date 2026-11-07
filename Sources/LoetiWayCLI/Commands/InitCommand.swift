@@ -91,6 +91,9 @@ struct InitCommand: AsyncParsableCommand {
             throw LWError("--customer gibt es mit --project nicht: Der Projektname ist immer der Ordnername.")
         }
         let name = folder.lastPathComponent
+        if let problem = ProjectConfig.nameProblem(name) {
+            throw LWError(problem)
+        }
         if loaded.config.github == nil && githubOwner == nil {
             throw LWError("\(loaded.config.customer) hat keinen github-Abschnitt, also --github-owner angeben.")
         }

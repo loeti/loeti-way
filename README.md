@@ -123,7 +123,7 @@ github:                         # fehlende Werte kommen vom Kunden
 
 `lw init --project` legt die Datei und eine `.envrc` an und trägt beide in `.git/info/exclude` ein, falls der Ordner ein git-Repo ist. `lw env` nimmt im Projektordner den PAT des Projekts. Fehlt er oder ist die Projektdatei kaputt, bleibt `ASYLUM_GH_TOKEN` leer; es gibt keinen Rückfall auf den breiteren Kunden-PAT. `lw` sucht Projekte bis 2 Ebenen unter dem Kundenordner.
 
-Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde> <Ordner> GitHub PAT`. `token_item` gibt es nur beim Kunden, und `project` ist nur erlaubt, wenn es den Ordnernamen wiederholt. Haben zwei Projekte denselben Ordnernamen, lehnt `lw` beide ab. Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw env`, `lw init --project` und `lw github` ab.
+Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde> <Ordner> GitHub PAT`. `token_item` gibt es nur beim Kunden, und `project` ist nur erlaubt, wenn es den Ordnernamen wiederholt. Haben zwei Projekte denselben Ordnernamen, lehnt `lw` beide ab, ebenso Projektordner mit Leerzeichen (sonst könnten `Kunde` + `x y` und `Kunde x` + `y` dieselbe Notiz treffen). Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw env`, `lw init --project` und `lw github` ab, und `lw status` liest sie nicht.
 
 `token_name` gibt es auch beim Kunden (Standard: `<Kunde>_PAT`). Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
 

@@ -38,6 +38,15 @@ struct ProjectTests {
         #expect(project.github.label == "KundeA / web")
     }
 
+    @Test("a project folder with a space is refused, its note could be another customer's")
+    func spaceInFolder() throws {
+        // KundeA + "x y" and a customer "KundeA x" + "y" would both read "KundeA x y GitHub PAT".
+        let spaced = URL(fileURLWithPath: "/Code/customers/KundeA/x y")
+        #expect(throws: LWError.self) { try ProjectConfig.resolve("{}", folder: spaced, customer: try kundeA()) }
+        #expect(ProjectConfig.nameProblem("x y")?.contains("'x-y'") == true)
+        #expect(ProjectConfig.nameProblem("x-y") == nil)
+    }
+
     @Test("project values win")
     func overrides() throws {
         let project = try ProjectConfig.resolve("""

@@ -60,6 +60,14 @@ public enum ProjectConfig {
         }
     }
 
+    /// Note titles are `<customer> <folder> GitHub PAT` and customer names are free text. Two
+    /// customers' project notes can only share a title if a folder name contains a space
+    /// (`Kunde` + `x y` and `Kunde x` + `y`), so such folders are refused.
+    public static func nameProblem(_ folder: String) -> String? {
+        guard folder.contains(where: \.isWhitespace) else { return nil }
+        return "Der Projektordner '\(folder)' enthält Leerzeichen; Ordner umbenennen (z. B. '\(folder.split(whereSeparator: \.isWhitespace).joined(separator: "-"))')"
+    }
+
     /// Parses a project file and fills the gaps from `customer`. `folder` names the project.
     public static func resolve(_ yaml: String, folder: URL, customer: CustomerConfig) throws -> LoadedProject {
         let file: File
@@ -98,6 +106,9 @@ public enum ProjectConfig {
         var problems = settings.problems(section: "github")
         if let project = file.project, project != name {
             problems.append("'project: \(project)' passt nicht zum Ordner '\(name)'. Der Projektname ist immer der Ordnername; 'project' weglassen")
+        }
+        if let problem = nameProblem(name) {
+            problems.append(problem)
         }
         if partial.tokenItem != nil {
             problems.append("'github.token_item' gibt es nur beim Kunden; die Notiz des Projekts heisst immer '\(target.tokenItem)'")
