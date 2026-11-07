@@ -16,9 +16,16 @@ public struct PassReference: Equatable, Sendable {
     public var text: String { PassCLI.reference(vault: vault, item: item, field: field) }
 }
 
-/// Which variables `env:` may set. They end up in the shell on the host, so nothing that
-/// changes how programs run or which login they use.
+/// Names for `env:`. On the host a value is only ever exported as `LW_ENV_<NAME>`, which no
+/// program reads, so a config can't inject `NODE_OPTIONS` or the like into the user's shell.
+/// Asylum maps it to `<NAME>` inside the container (`env-from-host`).
 public enum EnvNaming {
+    public static let hostPrefix = "LW_ENV_"
+
+    public static func hostVariable(_ name: String) -> String {
+        hostPrefix + name
+    }
+
     static let reserved: Set<String> = [
         "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "PWD", "IFS", "ENV", "BASH_ENV", "ZDOTDIR",
         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK", Scaffold.githubVariable,
@@ -70,8 +77,9 @@ public struct EnvExport: Equatable, Sendable {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// `hostToken` is only read when the host agent has to log in again.
-    public static func build(directory: URL, global: GlobalConfig, sessions: SessionStore, hostToken: () throws -> String) -> EnvExport {
+    /// `hostToken` is only read when the host agent has to log in again. Only a customer config
+    /// registered in `registry` is used: the folder's YAML may have been written by an agent.
+    public static func build(directory: URL, global: GlobalConfig, registry: CustomerRegistry, sessions: SessionStore, hostToken: () throws -> String) -> EnvExport {
         var result = EnvExport()
         guard let file = CustomerLocator.nearest(from: directory) else {
             result.warnings.append("Kein Kunde: keine \(CustomerConfig.fileName) in \(directory.path) oder darüber")
@@ -83,6 +91,7 @@ public struct EnvExport: Equatable, Sendable {
         do {
             customer = try CustomerLocator.load(file: file)
             try customer.config.validate(tokenVault: global.tokenVault)
+            try registry.verify(customer)
         } catch {
             result.warnings.append("\(file.path): \(error)")
             result.variables.append((Scaffold.githubVariable, .unset))
@@ -106,11 +115,11 @@ public struct EnvExport: Equatable, Sendable {
 
         let host: PassCLI
         do {
-            host = try sessions.agent(SessionStore.host, token: hostToken)
+            host = try sessions.agent(SessionStore.host, expected: global.hostAgent, token: hostToken)
         } catch {
             result.warnings.append("Host-Agent: \(error)")
             result.variables.append((Scaffold.githubVariable, .unset))
-            result.variables += config.envEntries.map { ($0.name, .unset) }
+            result.variables += config.envEntries.map { (EnvNaming.hostVariable($0.name), .unset) }
             return result
         }
 
@@ -136,21 +145,21 @@ public struct EnvExport: Equatable, Sendable {
         let agentSession = SessionStore.agent(customer: config.customer)
         let agent: PassCLI
         do {
-            agent = try sessions.agent(agentSession) {
+            agent = try sessions.agent(agentSession, expected: config.agentName) {
                 try host.with(reason: "lw env: Agent-Token von \(config.customer) für env").readNote(vault: global.tokenVault, title: config.protonTokenItem)
             }
         } catch {
             result.warnings.append("Agent von \(config.customer): \(error) → lw apply \(config.customer) bzw. lw renew \(config.customer)")
-            result.variables += entries.map { ($0.name, .unset) }
+            result.variables += entries.map { (EnvNaming.hostVariable($0.name), .unset) }
             return result
         }
         for entry in entries {
             do {
                 let value = try agent.with(reason: "lw env: \(entry.name) für Asylum (\(config.customer))").read(entry.reference)
-                result.variables.append((entry.name, .set(value)))
+                result.variables.append((EnvNaming.hostVariable(entry.name), .set(value)))
             } catch {
                 result.warnings.append("\(entry.name): \(entry.reference) nicht lesbar (\(error))")
-                result.variables.append((entry.name, .unset))
+                result.variables.append((EnvNaming.hostVariable(entry.name), .unset))
             }
         }
         return result

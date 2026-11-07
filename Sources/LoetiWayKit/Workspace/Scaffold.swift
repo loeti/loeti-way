@@ -113,7 +113,7 @@ public enum Scaffold {
         (["# ~/.asylum/config.yaml (gilt für alle Kunden; nicht gesetzte Variablen überspringt Asylum)",
           "env-from-host:",
           "  GH_TOKEN: \(githubVariable)"]
-            + names.map { "  \($0): \($0)" }).joined(separator: "\n")
+            + names.map { "  \($0): \(EnvNaming.hostVariable($0))" }).joined(separator: "\n")
     }
 
     public static let restartHint = """

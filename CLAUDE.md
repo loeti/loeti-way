@@ -20,6 +20,8 @@ In an Asylum container there is no Swift toolchain: build and test through the `
 - GitHub PATs exist per customer (`github` in `.loeti-way.yaml`) and optionally per project (`.loeti-way-project.yaml`, resolved against the customer in `ProjectConfig`). Code that handles a PAT works on a `GitHubTarget`. Inside a broken project config never fall back to the customer's PAT. A project file is agent-writable: nothing in it chooses its note title (always `<customer> <folder name> GitHub PAT`; shared titles fail for every project involved), and `CustomerLocator.ensureUnclaimed` checks all customers before a note is read or written.
 - `AccessPlan` only manages whole-vault grants. Item and folder grants are reported, never revoked.
 - pass-cli logins (`SessionStore`): every call runs with its own `PROTON_PASS_SESSION_DIR`; pass-cli's default session stays empty. `host` (host agent, viewer on the token vault only) and `agent-<customer>` stay logged in; the user's account only inside `withAccount`, deleted afterwards. `ProcessRunner` strips inherited `PROTON_PASS_*`.
+- A `.loeti-way.yaml` may be agent-written. `CustomerRegistry` (`~/.config/loeti-way/customers.yaml`, written only by `lw apply` after confirmation) binds folder, customer, agent and notes; `lw env` and every command except `apply` refuse configs that aren't registered as they are. After every agent login `SessionStore` checks the agent's name.
+- `env:` values are exported on the host only as `LW_ENV_<NAME>` (Asylum maps them), never under the real name.
 - `lw env` (`EnvExport`) is what `.envrc` runs: host agent reads the GitHub PAT, the customer's agent reads `env:` values. Never fails, unsets what it can't read. No pass-cli and no Proton token in Asylum containers.
 
 ## Rules

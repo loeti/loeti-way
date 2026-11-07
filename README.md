@@ -33,6 +33,7 @@ Proton Pass
 └── alle anderen                          privat, lw gibt sie nie frei
 
 ~/.config/loeti-way/host-token            Token des Host-Agents, nur für dich lesbar (0600)
+~/.config/loeti-way/customers.yaml        von lw apply bestätigte Kunden: Ordner, Agent, Notizen
 ~/.cache/loeti-way/sessions/              Anmeldungen von pass-cli, je eine pro Agent
 ```
 
@@ -45,6 +46,8 @@ Proton Pass
 | `host` | Host-Agent, nur Viewer auf `lw-tokens` | bleibt | `lw env`, `lw host` |
 | `agent-<kunde>` | Agent des Kunden | bleibt | Werte aus `env:` |
 | `account` | dein Konto, Login im Browser | nur während des Befehls | `apply`, `renew`, `github` (zum Ablegen), `audit`, `status`, `host --setup/--renew` |
+
+Eine `.loeti-way.yaml` kann in einem Ordner liegen, in den ein Agent schreibt, und sie bestimmt, welche Notizen gelesen werden. Darum gilt ein Kunde erst, wenn du ihn mit `lw apply` bestätigt hast: `lw` trägt Ordner, Kundenname, Agent und Notizen in `customers.yaml` ein. `lw env` und alle anderen Befehle lehnen eine Konfiguration ab, die dort fehlt oder davon abweicht. Nach jedem Anmelden prüft `lw` ausserdem, ob wirklich der erwartete Agent angemeldet ist.
 
 Startest du auf dem Mac aus Versehen einen Agent, findet `pass-cli` keine Anmeldung, und in der Umgebung liegen nur die Werte des Ordners. Ein Prozess, der es darauf anlegt, kann `host-token` lesen und damit die Tokens aller Kunden, aber nicht dein Konto. Jeder Zugriff des Host-Agents steht im Audit-Log: `lw audit --host`.
 
@@ -96,10 +99,10 @@ env:                            # optional: lw env setzt diese Variablen
 
 ### env
 
-`lw env` liest jede Referenz mit dem Agent des Kunden und setzt die Variable. Damit Asylum sie in den Container reicht, gehört der Name in `env-from-host` (siehe [Neuer Kunde](#neuer-kunde)).
+`lw env` liest jede Referenz mit dem Agent des Kunden. Auf dem Mac heisst die Variable immer `LW_ENV_<NAME>`, erst Asylum gibt ihr im Container den eigentlichen Namen (`env-from-host`, siehe [Einmalig](#einmalig)). So wirkt eine Variable wie `NODE_OPTIONS` nie auf Programme auf dem Mac.
 
 - Die Referenz hat die Form `pass://<vault>/<eintrag>/<feld>`, der Vault muss in `proton.vaults` stehen.
-- Variablennamen bestehen aus `A-Z`, `0-9` und `_`. Namen, die beeinflussen, wie Programme laufen oder womit sie sich anmelden, sind gesperrt: `PATH`, `HOME`, `GH_TOKEN`, `DYLD_*`, `LD_*`, `PROTON_PASS_*`, `GIT_*`, `ASYLUM_*` und weitere.
+- Variablennamen bestehen aus `A-Z`, `0-9` und `_`. Einige Namen sind auch für den Container gesperrt: `PATH`, `HOME`, `GH_TOKEN`, `DYLD_*`, `LD_*`, `PROTON_PASS_*`, `GIT_*`, `ASYLUM_*` und weitere.
 - `env:` gibt es nur beim Kunden, nicht in der Projektdatei.
 
 ## Projekt-PAT
@@ -149,7 +152,7 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 | `host --set-token` | nein | Einen vorhandenen Token in `host-token` ablegen und anmelden |
 | `status [kunde] [--offline]` | ja | Alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
 | `init [ordner] [--github-owner org] [--project]` | nein | `.loeti-way.yaml` (bzw. mit `--project` `.loeti-way-project.yaml`) und `.envrc` anlegen, bestehende Dateien bleiben |
-| `apply [kunde] [--dry-run] [-y]` | ja | Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
+| `apply [kunde] [--dry-run] [-y]` | ja | Kunde in `customers.yaml` bestätigen; Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
 | `renew [kunde] [--expiration 6m] [-y]` | ja | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
 | `github [kunde] [--project name] [--new] [--no-open]` | zum Ablegen | GitHub-Formular öffnen (vorausgefüllt bzw. "Regenerate"), Token einfügen, prüfen, ablegen. Ohne Kundenangabe gilt das Projekt, in dem du gerade bist |
 | `audit [kunde] [--host] [--limit 50]` | ja | Was der Agent (bzw. der Host-Agent) gelesen hat, mit Begründung (`pass-cli agent monitor`) |
@@ -170,7 +173,7 @@ In `~/.asylum/config.yaml` (nicht gesetzte Variablen überspringt Asylum, die Li
 ```yaml
 env-from-host:
   GH_TOKEN: ASYLUM_GH_TOKEN
-  MAVEN_PASSWORD: MAVEN_PASSWORD      # je Name aus env:
+  MAVEN_PASSWORD: LW_ENV_MAVEN_PASSWORD   # je Name aus env:
 ```
 
 `lw` muss für direnv im `PATH` liegen.

@@ -31,21 +31,37 @@ public struct SessionStore {
     }
 
     /// An agent login, reused while pass-cli accepts it. `token` is only read for a new login.
-    public func agent(_ name: String, token: () throws -> String) throws -> PassCLI {
+    /// `expected` is the agent's name: a session of any other agent is refused, so a swapped
+    /// token can't make lw read with someone else's rights.
+    public func agent(_ name: String, expected: String, token: () throws -> String) throws -> PassCLI {
         let pass = pass(name)
-        if case .token = try pass.session() { return pass }
-        return try relogin(name, token: token())
+        if case let .token(agent) = try pass.session() {
+            try Self.check(agent, expected: expected)
+            return pass
+        }
+        return try relogin(name, expected: expected, token: token())
     }
 
     /// Throws away the login in `name` and logs in again with `token`, e.g. after a renewal.
-    public func relogin(_ name: String, token: String) throws -> PassCLI {
+    public func relogin(_ name: String, expected: String, token: String) throws -> PassCLI {
         try reset(name)
         let pass = pass(name)
         try pass.login(token: token)
-        guard case .token = try pass.session() else {
+        guard case let .token(agent) = try pass.session() else {
             throw LWError("Nach dem Anmelden mit dem Agent-Token meldet pass-cli keine Agent-Sitzung.")
         }
+        do {
+            try Self.check(agent, expected: expected)
+        } catch {
+            try? reset(name)
+            throw error
+        }
         return pass
+    }
+
+    static func check(_ agent: String?, expected: String) throws {
+        guard let agent, agent != expected else { return }
+        throw LWError("Angemeldet ist Agent '\(agent)', erwartet '\(expected)'. Der Token gehört zu einem anderen Agent; nichts gelesen.")
     }
 
     /// Logs out (as far as possible) and deletes the directory.

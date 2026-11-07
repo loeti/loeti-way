@@ -60,7 +60,7 @@ struct AppContext {
 
     /// The host agent's login, logging in with `host-token` if needed.
     func host() throws -> PassCLI {
-        try sessions.agent(SessionStore.host) { try HostToken.read(global.hostTokenFile) }
+        try sessions.agent(SessionStore.host, expected: global.hostAgent) { try HostToken.read(global.hostTokenFile) }
     }
 
     static func make(_ options: CommonOptions) throws -> AppContext {
@@ -81,8 +81,9 @@ struct AppContext {
 
     var cwd: URL { URL(fileURLWithPath: FileManager.default.currentDirectoryPath) }
 
-    /// Loads and validates one customer's config.
-    func customer(_ name: String?) throws -> LoadedCustomer {
+    /// Loads and validates one customer's config. Unless `registered` is false (only `apply`,
+    /// which registers), it must match `customers.yaml`.
+    func customer(_ name: String?, registered: Bool = true) throws -> LoadedCustomer {
         let customer = try CustomerLocator.resolve(name: name, cwd: cwd, root: global.root)
         do {
             try customer.config.validate(tokenVault: global.tokenVault)
@@ -91,6 +92,9 @@ struct AppContext {
             }
         } catch {
             throw LWError("\(customer.file.path):\n\(error)")
+        }
+        if registered {
+            try CustomerRegistry.load(global.registryFile).verify(customer)
         }
         return customer
     }

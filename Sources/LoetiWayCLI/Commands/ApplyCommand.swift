@@ -22,10 +22,30 @@ struct ApplyCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
-        let config = try context.customer(customer).config
+        let loaded = try context.customer(customer, registered: false)
+        let config = loaded.config
+        try register(loaded, context: context)
         try await context.withAccount { pass in
             try apply(config: config, pass: pass, context: context)
         }
+    }
+
+    /// Records the customer in customers.yaml after confirmation; only then does lw env read
+    /// its notes. A change shows up here first, so a config edited by an agent can't slip through.
+    private func register(_ loaded: LoadedCustomer, context: AppContext) throws {
+        var registry = try CustomerRegistry.load(context.global.registryFile)
+        let changes = registry.changes(for: loaded)
+        guard !changes.isEmpty else { return }
+        print("Registrierung (\(context.global.registryFile.path)):")
+        changes.forEach { print("  \($0)") }
+        if dryRun { return }
+        guard yes || Console.confirm("Stimmt das, und ist \(loaded.file.path) deine Konfiguration?") else {
+            print("Abgebrochen.")
+            throw ExitCode.failure
+        }
+        try registry.register(loaded)
+        try registry.save(context.global.registryFile)
+        print("  ✓ registriert")
     }
 
     private func apply(config: CustomerConfig, pass: PassCLI, context: AppContext) throws {

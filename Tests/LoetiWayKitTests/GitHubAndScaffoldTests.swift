@@ -59,7 +59,7 @@ struct ScaffoldTests {
     func asylumSnippet() {
         let snippet = Scaffold.asylumConfigSnippet(env: ["MAVEN_PASSWORD"])
         #expect(snippet.contains("GH_TOKEN: ASYLUM_GH_TOKEN"))
-        #expect(snippet.contains("MAVEN_PASSWORD: MAVEN_PASSWORD"))
+        #expect(snippet.contains("MAVEN_PASSWORD: LW_ENV_MAVEN_PASSWORD"))
         #expect(!snippet.contains("PROTON_PASS"))
     }
 }

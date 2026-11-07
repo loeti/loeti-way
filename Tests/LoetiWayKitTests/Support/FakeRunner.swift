@@ -25,10 +25,30 @@ final class FakeRunner: CommandRunner {
         onceResponses.append((prefix, CommandResult(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))))
     }
 
+    /// Like `on`, but only for calls in the session directory named `session` (its last component).
+    func onSession(_ session: String, _ prefix: [String], status: Int32 = 0, stdout: String = "", stderr: String = "") {
+        sessionResponses.append((session, prefix, CommandResult(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))))
+    }
+
+    func onceSession(_ session: String, _ prefix: [String], status: Int32 = 0, stdout: String = "", stderr: String = "") {
+        onceSessionResponses.append((session, prefix, CommandResult(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))))
+    }
+
+    private var sessionResponses: [(session: String, prefix: [String], result: CommandResult)] = []
+    private var onceSessionResponses: [(session: String, prefix: [String], result: CommandResult)] = []
+
     func run(_ arguments: [String], stdin: Data?, environment: [String: String]) throws -> CommandResult {
-        calls.append(Call(arguments: arguments, stdin: stdin, environment: environment))
+        let call = Call(arguments: arguments, stdin: stdin, environment: environment)
+        calls.append(call)
+        let session = call.sessionDirectory.map { URL(fileURLWithPath: $0).lastPathComponent }
+        if let index = onceSessionResponses.firstIndex(where: { $0.session == session && arguments.starts(with: $0.prefix) }) {
+            return onceSessionResponses.remove(at: index).result
+        }
         if let index = onceResponses.firstIndex(where: { arguments.starts(with: $0.prefix) }) {
             return onceResponses.remove(at: index).result
+        }
+        if let match = sessionResponses.last(where: { $0.session == session && arguments.starts(with: $0.prefix) }) {
+            return match.result
         }
         return responses.last { arguments.starts(with: $0.prefix) }?.result ?? CommandResult(status: 0)
     }

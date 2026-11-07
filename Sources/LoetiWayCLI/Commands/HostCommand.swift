@@ -119,7 +119,7 @@ struct HostCommand: AsyncParsableCommand {
     }
 
     private func login(_ context: AppContext) throws {
-        let host = try context.sessions.relogin(SessionStore.host, token: HostToken.read(context.global.hostTokenFile))
+        let host = try context.sessions.relogin(SessionStore.host, expected: context.global.hostAgent, token: HostToken.read(context.global.hostTokenFile))
         print("✓ Host-Agent angemeldet: \(try host.session())")
     }
 }

@@ -22,6 +22,8 @@ public struct GlobalConfig: Equatable, Sendable {
     public var hostAgent: String
     public var warnDays: Int
     public var hostTokenFile: URL
+    /// `customers.yaml`, see `CustomerRegistry`.
+    public var registryFile: URL
     public var sessionsDirectory: URL
 
     public init(root: URL, tokenVault: String = GlobalConfig.defaultTokenVault, hostAgent: String = GlobalConfig.defaultHostAgent,
@@ -31,6 +33,7 @@ public struct GlobalConfig: Equatable, Sendable {
         self.hostAgent = hostAgent
         self.warnDays = warnDays
         self.hostTokenFile = Self.fileURL(environment: environment).deletingLastPathComponent().appendingPathComponent("host-token")
+        self.registryFile = Self.fileURL(environment: environment).deletingLastPathComponent().appendingPathComponent("customers.yaml")
         self.sessionsDirectory = Self.cacheURL(environment: environment).appendingPathComponent("sessions", isDirectory: true)
     }
 

@@ -30,7 +30,15 @@ struct EnvCommand: AsyncParsableCommand {
             return
         }
         let folder = directory.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) } ?? context.cwd
-        let result = EnvExport.build(directory: folder, global: context.global, sessions: context.sessions) {
+        let registry: CustomerRegistry
+        do {
+            registry = try CustomerRegistry.load(context.global.registryFile)
+        } catch {
+            Console.error("lw env: \(error)")
+            print("unset \(Scaffold.githubVariable)")
+            return
+        }
+        let result = EnvExport.build(directory: folder, global: context.global, registry: registry, sessions: context.sessions) {
             try HostToken.read(context.global.hostTokenFile)
         }
         for warning in result.warnings {
