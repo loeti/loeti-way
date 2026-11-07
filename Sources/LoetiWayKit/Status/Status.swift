@@ -144,9 +144,13 @@ public struct StatusCollector {
     public func collect(_ customers: [LoadedCustomer]) async -> (host: StatusSection, customers: [StatusSection]) {
         let items = try? store?.items()
         var tokens = TokenCache(store: store, items: items)
+        // Every customer that could claim a note, also the ones not asked about.
+        var known = CustomerLocator.discover(root: global.root).customers
+        let knownFiles = Set(known.map(\.file.standardizedFileURL))
+        known += customers.filter { !knownFiles.contains($0.file.standardizedFileURL) }
         var sections: [StatusSection] = []
         for customer in customers {
-            sections.append(await section(for: customer, tokens: &tokens))
+            sections.append(await section(for: customer, known: known, tokens: &tokens))
         }
         return (hostSection(items: items), sections)
     }
@@ -168,16 +172,19 @@ public struct StatusCollector {
         }
     }
 
-    func section(for customer: LoadedCustomer, tokens: inout TokenCache) async -> StatusSection {
+    func section(for customer: LoadedCustomer, known: [LoadedCustomer], tokens: inout TokenCache) async -> StatusSection {
         let config = customer.config
         let name = config.customer
         var section = StatusSection(title: "\(name)  \(customer.directory.path)")
 
+        // An unconfirmed config may have been written by an agent: its notes are not read.
+        var confirmed = true
         do {
             try config.validate(tokenVault: global.tokenVault)
             try registry.verify(customer)
         } catch {
             section.lines.append(.todo("\(error)"))
+            confirmed = false
         }
 
         // Proton agent
@@ -209,13 +216,18 @@ public struct StatusCollector {
         }
 
         section.lines.append(envrcLine(customer.directory, label: ".envrc"))
+        guard confirmed else {
+            section.lines.append(.info("GitHub-PATs und Repos nicht geprüft, solange die Konfiguration nicht bestätigt ist"))
+            return section
+        }
 
-        // GitHub PATs
+        // GitHub PATs, only from notes no other customer claims (as in lw env and lw github)
+        var claimed: Set<String> = []
         if let target = config.githubTarget(directory: customer.directory) {
-            section.lines.append(await patLine(target, label: "GitHub", tokens: &tokens))
+            section.lines.append(await patLine(target, label: "GitHub", owner: customer, known: known, claimed: &claimed, tokens: &tokens))
         }
         for project in customer.projects {
-            section.lines.append(await patLine(project.github, label: "\(project.name): GitHub", tokens: &tokens))
+            section.lines.append(await patLine(project.github, label: "\(project.name): GitHub", owner: customer, known: known, claimed: &claimed, tokens: &tokens))
             section.lines.append(envrcLine(project.directory, label: "\(project.name): .envrc"))
         }
         for failure in customer.projectFailures {
@@ -224,7 +236,7 @@ public struct StatusCollector {
 
         // Every working copy below the customer
         for repository in GitRepository.find(below: customer.directory, maxDepth: 2) {
-            section.lines += await repositoryLines(repository, customer: customer, tokens: &tokens)
+            section.lines += await repositoryLines(repository, customer: customer, claimed: claimed, tokens: &tokens)
         }
         return section
     }
@@ -238,7 +250,14 @@ public struct StatusCollector {
         }
     }
 
-    func patLine(_ target: GitHubTarget, label: String, tokens: inout TokenCache) async -> StatusLine {
+    func patLine(_ target: GitHubTarget, label: String, owner: LoadedCustomer, known: [LoadedCustomer],
+                 claimed: inout Set<String>, tokens: inout TokenCache) async -> StatusLine {
+        do {
+            try CustomerLocator.ensureUnclaimed(target, owner: owner, customers: known, registry: registry)
+        } catch {
+            claimed.insert(target.tokenItem)
+            return .todo("\(label): \(error)")
+        }
         let command = target.project.map { "lw github \(target.customer) --project \($0)" } ?? "lw github \(target.customer)"
         switch tokens.stored(target.tokenItem) {
         case nil: return .info("\(label): nicht prüfbar, Token-Vault nicht lesbar")
@@ -256,7 +275,7 @@ public struct StatusCollector {
         }
     }
 
-    func repositoryLines(_ repository: GitRepository, customer: LoadedCustomer, tokens: inout TokenCache) async -> [StatusLine] {
+    func repositoryLines(_ repository: GitRepository, customer: LoadedCustomer, claimed: Set<String>, tokens: inout TokenCache) async -> [StatusLine] {
         let relative = Self.relative(repository.directory, to: customer.directory)
         if customer.projectFailure(containing: repository.directory) != nil { return [] }  // reported above
         var lines: [StatusLine] = []
@@ -286,6 +305,7 @@ public struct StatusCollector {
             lines.append(.todo("\(relative): \(github) ohne PAT → \(initCommand)"))
             return lines
         }
+        if claimed.contains(target.tokenItem) { return lines }  // reported with the PAT
         guard let checker, let token = tokens.value(target.tokenItem) else {
             if project != nil { lines.append(.ok("\(relative): \(github)")) }
             return lines

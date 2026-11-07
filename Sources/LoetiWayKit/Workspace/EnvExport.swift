@@ -114,7 +114,7 @@ public struct EnvExport: Equatable, Sendable {
         var targetProblem: String?
         do {
             let found = try customer.githubTarget(project: nil, cwd: directory)
-            try CustomerLocator.ensureUnclaimed(found, owner: customer, root: global.root)
+            try CustomerLocator.ensureUnclaimed(found, owner: customer, root: global.root, registry: registry)
             target = found
         } catch {
             // A customer without any GitHub section is not a problem, just nothing to export.

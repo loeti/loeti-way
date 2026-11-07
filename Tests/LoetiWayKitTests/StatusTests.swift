@@ -118,16 +118,44 @@ struct StatusTests {
         #expect(orphans.needsAttention)
     }
 
-    @Test("an unregistered config, a missing PAT note and a logged-in account are flagged")
+    @Test("an unregistered config is flagged and none of its notes is read")
+    func unregistered() async throws {
+        let tree = try makeTree()
+        let runner = hostRunner()
+        let (collector, customer) = try collector(tree, runner: runner, registered: false, checker: checker)
+        let report = await collector.collect([customer])
+        let section = try #require(report.customers.first)
+        #expect(texts(section, .attention).contains { $0.contains("nicht registriert") && $0.contains("lw apply KundeA") })
+        #expect(texts(section, .info).contains { $0.hasPrefix("GitHub-PATs und Repos nicht geprüft") })
+        #expect(!section.lines.contains { $0.text.contains("GitHub @") || $0.text.hasPrefix("web:") || $0.text.hasPrefix("api:") })
+        #expect(!runner.calls.contains { $0.arguments.starts(with: ["item", "view"]) })
+    }
+
+    @Test("a project note another registered customer claims is flagged, not read")
+    func claimedNote() async throws {
+        let tree = try makeTree()
+        let runner = hostRunner()
+        var (collector, customer) = try collector(tree, runner: runner, checker: checker)
+        collector.registry.entries.append(CustomerRegistry.Entry(
+            directory: "/elsewhere/KundeAWeb", customer: "KundeA web", agent: "asylum-kundeaweb",
+            protonTokenItem: "KundeA web Proton Agent", githubTokenItem: "KundeA web GitHub PAT"))
+        let report = await collector.collect([customer])
+        let section = try #require(report.customers.first)
+        #expect(texts(section, .attention).contains { $0.hasPrefix("web: GitHub: Die Notiz 'KundeA web GitHub PAT' ist für KundeA web") })
+        #expect(!texts(section, .ok).contains { $0.hasPrefix("web: kundea-org/web") })
+        #expect(!runner.calls.contains { $0.arguments == ["item", "view", "pass://lw-tokens/KundeA web GitHub PAT/note"] })
+        #expect(texts(section, .ok).contains { $0.hasPrefix("GitHub @loeti") })
+    }
+
+    @Test("a missing PAT note and a logged-in account are flagged")
     func problems() async throws {
         let tree = try makeTree()
         let runner = hostRunner()
         runner.on(["item", "list"], stdout: #"{"items": [{"id": "1", "share_id": "t", "title": "KundeA GitHub PAT"}]}"#)
-        let (collector, customer) = try collector(tree, runner: runner, registered: false, checker: nil,
+        let (collector, customer) = try collector(tree, runner: runner, checker: nil,
                                                   defaultSession: .account(username: "loeti"))
         let report = await collector.collect([customer])
         let todo = texts(try #require(report.customers.first), .attention)
-        #expect(todo.contains { $0.contains("nicht registriert") && $0.contains("lw apply KundeA") })
         #expect(todo.contains { $0.hasPrefix("web: GitHub: Token fehlt") && $0.hasSuffix("lw github KundeA --project web") })
         #expect(report.host.lines.contains { $0.level == .attention && $0.text.contains("pass-cli logout") })
         // Offline: stored, but not checked.

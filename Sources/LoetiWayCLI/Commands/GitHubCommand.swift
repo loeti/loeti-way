@@ -34,7 +34,7 @@ struct GitHubCommand: AsyncParsableCommand {
         let context = try AppContext.make(options)
         let loaded = try context.customer(customer)
         let target = try loaded.githubTarget(project: project, cwd: customer == nil ? context.cwd : nil)
-        try CustomerLocator.ensureUnclaimed(target, owner: loaded, root: context.global.root)
+        try CustomerLocator.ensureUnclaimed(target, owner: loaded, root: context.global.root, registry: CustomerRegistry.load(context.global.registryFile))
         let github = target.settings
         print("GitHub-PAT für \(target.label)")
         // The host agent can see whether a note exists; the account is only needed to store.

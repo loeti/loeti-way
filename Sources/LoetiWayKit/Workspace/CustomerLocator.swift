@@ -119,12 +119,22 @@ public enum CustomerLocator {
     /// Throws if a customer other than `owner` uses the note `target` would read or write.
     /// Customer and project names are free text, so `KundeA` + project `X` and a customer
     /// `KundeA X` would otherwise share `KundeA X GitHub PAT`.
-    public static func ensureUnclaimed(_ target: GitHubTarget, owner: LoadedCustomer, root: URL) throws {
+    public static func ensureUnclaimed(_ target: GitHubTarget, owner: LoadedCustomer, root: URL, registry: CustomerRegistry) throws {
+        try ensureUnclaimed(target, owner: owner, customers: discover(root: root).customers, registry: registry)
+    }
+
+    /// The same against customers already discovered. Registered customers count even when
+    /// their config is missing, broken or outside the root.
+    public static func ensureUnclaimed(_ target: GitHubTarget, owner: LoadedCustomer, customers: [LoadedCustomer], registry: CustomerRegistry) throws {
         let ownFile = owner.file.standardizedFileURL
-        for other in discover(root: root).customers where other.file.standardizedFileURL != ownFile {
+        for other in customers where other.file.standardizedFileURL != ownFile {
             if other.tokenItems.contains(target.tokenItem) {
                 throw LWError("Die Notiz '\(target.tokenItem)' gehört auch zu \(other.config.customer) (\(other.file.path)). Nichts geändert.")
             }
+        }
+        let ownDirectory = owner.directory.standardizedFileURL.path
+        for entry in registry.entries where entry.directory != ownDirectory && entry.items.contains(target.tokenItem) {
+            throw LWError("Die Notiz '\(target.tokenItem)' ist für \(entry.customer) (\(entry.directory)) registriert. Nichts geändert.")
         }
     }
 

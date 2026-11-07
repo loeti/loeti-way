@@ -113,9 +113,23 @@ struct ProjectTests {
         try Fixtures.write(other, to: root.appendingPathComponent("customers/KundeAWeb/\(CustomerConfig.fileName)"))
         let kundeA = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
         let web = try kundeA.githubTarget(project: "web", cwd: nil)
-        #expect(throws: LWError.self) { try CustomerLocator.ensureUnclaimed(web, owner: kundeA, root: root) }
-        try CustomerLocator.ensureUnclaimed(try kundeA.githubTarget(project: "api", cwd: nil), owner: kundeA, root: root)
-        try CustomerLocator.ensureUnclaimed(try #require(kundeA.config.githubTarget(directory: kundeA.directory)), owner: kundeA, root: root)
+        #expect(throws: LWError.self) { try CustomerLocator.ensureUnclaimed(web, owner: kundeA, root: root, registry: CustomerRegistry()) }
+        try CustomerLocator.ensureUnclaimed(try kundeA.githubTarget(project: "api", cwd: nil), owner: kundeA, root: root, registry: CustomerRegistry())
+        try CustomerLocator.ensureUnclaimed(try #require(kundeA.config.githubTarget(directory: kundeA.directory)), owner: kundeA, root: root, registry: CustomerRegistry())
+    }
+
+    @Test("a registered customer claims its notes even when its config isn't found below the root")
+    func registeredClaim() throws {
+        let (root, customerDir) = try makeTree()
+        let kundeA = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
+        let web = try kundeA.githubTarget(project: "web", cwd: nil)
+        let elsewhere = CustomerRegistry.Entry(directory: "/elsewhere/KundeAWeb", customer: "KundeA web", agent: "asylum-kundeaweb",
+                                               protonTokenItem: "KundeA web Proton Agent", githubTokenItem: "KundeA web GitHub PAT")
+        let registry = CustomerRegistry(entries: [elsewhere, CustomerRegistry.Entry(kundeA)])
+        #expect(throws: LWError.self) { try CustomerLocator.ensureUnclaimed(web, owner: kundeA, root: root, registry: registry) }
+        // Its own registration doesn't count against it.
+        try CustomerLocator.ensureUnclaimed(try kundeA.githubTarget(project: "api", cwd: nil), owner: kundeA, root: root, registry: registry)
+        try CustomerLocator.ensureUnclaimed(try #require(kundeA.config.githubTarget(directory: kundeA.directory)), owner: kundeA, root: root, registry: registry)
     }
 
     @Test("lw github picks the named project, then the one around cwd, then the customer")
