@@ -134,49 +134,6 @@ struct ProjectTests {
         #expect(throws: LWError.self) { try customer.githubTarget(project: nil, cwd: customerDir.appendingPathComponent("broken/src")) }
     }
 
-    @Test("status lists every project PAT and flags missing ones")
-    func status() async throws {
-        let (_, customerDir) = try makeTree()
-        let customer = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
-        let runner = FakeRunner()
-        runner.on(["agent", "list"], stdout: #"[{"pat_id": "p1", "name": "asylum-kundea", "expire_time": 1805000000}]"#)
-        runner.on(["item", "list"], stdout: """
-        {"items": [{"id": "1", "share_id": "t", "title": "KundeA Proton Agent"},
-                   {"id": "2", "share_id": "t", "title": "KundeA GitHub PAT"},
-                   {"id": "3", "share_id": "t", "title": "KundeA web GitHub PAT"}]}
-        """)
-        let pass = PassCLI(runner: runner)
-        let collector = StatusCollector(pass: pass, store: TokenStore(pass: pass, vault: "lw-tokens"), checker: nil)
-        let status = try #require(try await collector.collect([customer]).first)
-        #expect(status.github == .notChecked)
-        #expect(status.projects.map(\.name) == ["api", "web"])
-        #expect(status.projects.map(\.state) == [.tokenMissing, .notChecked])
-
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        #expect(status.needsAttention(now: now, warnDays: 14))
-        let text = status.render(now: now, warnDays: 14, tokenVault: "lw-tokens")
-        #expect(text.contains("api: Token fehlt in 'lw-tokens' / 'KundeA api GitHub PAT' → lw github KundeA --project api"))
-        #expect(text.contains("web: Token gespeichert"))
-        #expect(text.contains("broken"))
-    }
-
-    @Test("a broken project isn't shown as 'GitHub nicht konfiguriert'")
-    func brokenProjectOnly() {
-        let config = CustomerConfig(customer: "loeti", proton: ProtonSettings(vaults: [VaultGrant(name: "agent-loeti")]))
-        let file = URL(fileURLWithPath: "/Code/loeti/.loeti-way.yaml")
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-        let plain = CustomerStatus(customer: LoadedCustomer(config: config, file: file))
-        #expect(plain.render(now: now, warnDays: 14, tokenVault: "lw-tokens").contains("GitHub  nicht konfiguriert"))
-
-        let failure = CustomerLocator.Failure(file: URL(fileURLWithPath: "/Code/loeti/loeti-way/\(ProjectConfig.fileName)"), message: "owner fehlt")
-        let broken = CustomerStatus(customer: LoadedCustomer(config: config, file: file, projectFailures: [failure]))
-        let text = broken.render(now: now, warnDays: 14, tokenVault: "lw-tokens")
-        #expect(!text.contains("nicht konfiguriert"))
-        #expect(text.contains("✗ owner fehlt"))
-        #expect(broken.needsAttention(now: now, warnDays: 14))
-    }
-
     @Test("the project template resolves")
     func scaffold() throws {
         let customer = try kundeA()

@@ -53,14 +53,17 @@ public struct GitHubTokenInfo: Equatable, Sendable {
 
 public protocol GitHubTokenChecker {
     func check(token: String) async throws -> GitHubTokenInfo
+    /// Whether the token may see the repository. A fine-grained PAT answers 404 for repos it
+    /// doesn't cover, even public ones aren't distinguishable here, so 404 means "not covered".
+    func canAccess(token: String, repository: GitHubRepository) async throws -> Bool
 }
 
 /// Asks GitHub who the token belongs to and when it expires.
 public struct LiveGitHubChecker: GitHubTokenChecker {
     public init() {}
 
-    public func check(token: String) async throws -> GitHubTokenInfo {
-        var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
+    private func get(_ path: String, token: String) async throws -> (Data, HTTPURLResponse) {
+        var request = URLRequest(url: URL(string: "https://api.github.com" + path)!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
@@ -71,6 +74,23 @@ public struct LiveGitHubChecker: GitHubTokenChecker {
         guard let http = response as? HTTPURLResponse else {
             throw LWError("Keine HTTP-Antwort von GitHub")
         }
+        return (data, http)
+    }
+
+    public func canAccess(token: String, repository: GitHubRepository) async throws -> Bool {
+        let owner = repository.owner.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? repository.owner
+        let name = repository.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? repository.name
+        let (_, http) = try await get("/repos/\(owner)/\(name)", token: token)
+        switch http.statusCode {
+        case 200..<300: return true
+        case 403, 404: return false
+        case 401: throw LWError("GitHub lehnt den Token ab (401)")
+        default: throw LWError("GitHub antwortet mit HTTP \(http.statusCode)")
+        }
+    }
+
+    public func check(token: String) async throws -> GitHubTokenInfo {
+        let (data, http) = try await get("/user", token: token)
         if http.statusCode == 401 {
             throw LWError("GitHub lehnt den Token ab (401): abgelaufen, widerrufen oder falsch kopiert")
         }

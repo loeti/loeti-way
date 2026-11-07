@@ -53,7 +53,17 @@ struct AppContext {
     /// Logs the account in (browser), runs `body`, logs out and deletes the session.
     func withAccount<T>(_ body: (PassCLI) async throws -> T) async throws -> T {
         Console.error("Anmelden mit deinem Proton-Konto (Browser) …")
-        let result = try await sessions.withAccount(body)
+        let agentsFile = global.agentsFile
+        let result = try await sessions.withAccount { pass in
+            let result = try await body(pass)
+            // While the account is there anyway: remember expiry dates for lw status.
+            if let agents = try? pass.listAgents() {
+                var expiries = AgentExpiries.load(agentsFile)
+                expiries.record(agents, now: Date())
+                try? expiries.save(agentsFile)
+            }
+            return result
+        }
         Console.error("Von deinem Proton-Konto abgemeldet.")
         return result
     }

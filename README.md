@@ -34,6 +34,7 @@ Proton Pass
 
 ~/.config/loeti-way/host-token            Token des Host-Agents, nur für dich lesbar (0600)
 ~/.config/loeti-way/customers.yaml        von lw apply bestätigte Kunden: Ordner, Agent, Notizen
+~/.config/loeti-way/agents.yaml           Ablaufdaten der Agents, zuletzt mit deinem Konto gesehen
 ~/.cache/loeti-way/sessions/              Anmeldungen von pass-cli, je eine pro Agent
 ```
 
@@ -45,7 +46,7 @@ Proton Pass
 |---|---|---|---|
 | `host` | Host-Agent, nur Viewer auf `lw-tokens` | bleibt | `lw env`, `lw host` |
 | `agent-<kunde>` | Agent des Kunden | bleibt | Werte aus `env:` |
-| `account` | dein Konto, Login im Browser | nur während des Befehls | `apply`, `renew`, `github` (zum Ablegen), `audit`, `status`, `host --setup/--renew` |
+| `account` | dein Konto, Login im Browser | nur während des Befehls | `apply`, `renew`, `github` (zum Ablegen), `audit`, `status --konto`, `host --setup/--renew` |
 
 Eine `.loeti-way.yaml` kann in einem Ordner liegen, in den ein Agent schreibt, und sie bestimmt, welche Notizen gelesen werden. Darum gilt ein Kunde erst, wenn du ihn mit `lw apply` bestätigt hast: `lw` trägt Ordner, Kundenname, Agent, Notizen, Vaults und `env:` in `customers.yaml` ein. `lw env` und alle anderen Befehle lehnen eine Konfiguration ab, die dort fehlt oder davon abweicht. Nach jedem Anmelden prüft `lw` ausserdem, ob wirklich der erwartete Agent angemeldet ist.
 
@@ -150,7 +151,8 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 | `host --setup [-y]` | ja | Host-Agent anlegen, falls er fehlt; nur `lw-tokens` als Viewer freigeben, andere Freigaben entziehen |
 | `host --renew [--expiration 3m]` | ja | Token des Host-Agents erneuern und in `host-token` schreiben |
 | `host --set-token` | nein | Einen vorhandenen Token in `host-token` ablegen und anmelden |
-| `status [kunde] [--offline]` | ja | Alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
+| `status [kunde] [--offline]` | nein | Was zu tun ist, siehe [Status](#status). Status 1, wenn etwas zu tun ist |
+| `status --konto` | ja | Zusätzlich die Rechte aller Agents und aktuelle Ablaufdaten |
 | `init [ordner] [--github-owner org] [--project]` | nein | `.loeti-way.yaml` (bzw. mit `--project` `.loeti-way-project.yaml`) und `.envrc` anlegen, bestehende Dateien bleiben |
 | `apply [kunde] [--dry-run] [-y]` | ja | Kunde in `customers.yaml` bestätigen; Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
 | `renew [kunde] [--expiration 6m] [-y]` | ja | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
@@ -158,6 +160,18 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 | `audit [kunde] [--host] [--limit 50]` | ja | Was der Agent (bzw. der Host-Agent) gelesen hat, mit Begründung (`pass-cli agent monitor`) |
 
 Item- und Ordner-Freigaben, die nicht in der Konfiguration stehen, zeigt `lw` an, ändert sie aber nicht.
+
+## Status
+
+`lw status` braucht dein Konto nicht. Es zeigt pro Kunde, was zu tun ist (`!`), was stimmt (`✓`) und Hinweise (`·`):
+
+- **Host-Agent:** angemeldet, `lw-tokens` lesbar, Ablaufdatum. Ausserdem, ob die normale Anmeldung von `pass-cli` leer ist; ist dort dein Konto angemeldet, kann jeder Prozess es benutzen.
+- **Kunde:** in `customers.yaml` bestätigt und unverändert, Ablaufdatum des Agents, `env:`, `.envrc` lädt `lw env`.
+- **GitHub-PATs** von Kunde und Projekten: abgelegt, Ablaufdatum laut GitHub.
+- **Jedes git-Repo** bis 2 Ebenen unter dem Kunden: hat es einen Projekt-PAT (sonst `lw init --project`), lädt eine eigene `.envrc` `lw env`, und deckt der zuständige PAT das Repo aus `origin` ab (GitHub antwortet sonst mit 404)?
+- **Repos ohne Kunde** unter `root`: Sie bekommen keine Tokens.
+
+Ablaufdaten der Proton-Agents kennt nur dein Konto. `lw` hält sie bei jedem Befehl mit Konto in `agents.yaml` fest; `status` zeigt sie mit "Stand". Die Rechte der Agents prüft nur `lw status --konto`. Ob direnv eine `.envrc` erlaubt hat (`direnv allow`), prüft `lw` nicht.
 
 ## Einmalig
 

@@ -26,6 +26,11 @@ public struct SessionStore {
         base.appendingPathComponent(name, isDirectory: true)
     }
 
+    /// pass-cli's own default session, the one every process finds. lw only looks at it.
+    public func defaultSession() -> PassCLI {
+        PassCLI(runner: runner)
+    }
+
     public func pass(_ name: String, reason: String? = nil) -> PassCLI {
         PassCLI(runner: runner, sessionDirectory: directory(name), reason: reason)
     }

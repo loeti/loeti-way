@@ -77,7 +77,7 @@ public enum CustomerLocator {
         return found
     }
 
-    private static func subdirectories(of directory: URL) -> [URL] {
+    static func subdirectories(of directory: URL) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]

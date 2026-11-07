@@ -69,9 +69,15 @@ final class FakeRunner: CommandRunner {
 
 struct FakeChecker: GitHubTokenChecker {
     var result: Result<GitHubTokenInfo, LWError>
+    /// token → repositories it covers.
+    var access: [String: Set<String>] = [:]
 
     func check(token: String) async throws -> GitHubTokenInfo {
         try result.get()
+    }
+
+    func canAccess(token: String, repository: GitHubRepository) async throws -> Bool {
+        access[token]?.contains(repository.description) ?? false
     }
 }
 
