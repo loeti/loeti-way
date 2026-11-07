@@ -20,7 +20,11 @@ public enum PassSession: Equatable, Sendable, CustomStringConvertible {
             fields[key] = value.isEmpty ? nil : value
         }
         if fields.keys.contains("Personal Access Token") {
-            return .token(name: fields["Personal Access Token"])
+            // pass-cli 2.7 prints the agent as "[Agent] <name>".
+            let name = fields["Personal Access Token"].map { value in
+                value.hasPrefix("[Agent] ") ? String(value.dropFirst("[Agent] ".count)) : value
+            }
+            return .token(name: name)
         }
         return .account(username: fields["Username"])
     }

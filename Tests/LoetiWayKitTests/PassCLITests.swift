@@ -117,6 +117,9 @@ struct PassCLITests {
 
         runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: asylum-kundea\n")
         #expect(try pass.session() == .token(name: "asylum-kundea"))
+        // As pass-cli 2.7.0 prints it.
+        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: [Agent] lw-host\n")
+        #expect(try pass.session() == .token(name: "lw-host"))
         #expect(throws: LWError.self) { try pass.session().requireAccount() }
 
         runner.on(["info"], status: 1, stderr: "not logged in")
