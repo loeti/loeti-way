@@ -25,7 +25,9 @@ public struct AccessPlan: Equatable, Sendable {
 
     public var isEmpty: Bool { actions.isEmpty }
 
-    public static func make(desired: [VaultGrant], actual: [AccessGrant]) -> AccessPlan {
+    /// `allowed` says which vault names this agent may have at all; the host agent passes its
+    /// token vault, customer agents keep the default (`agent-…`).
+    public static func make(desired: [VaultGrant], actual: [AccessGrant], allowed: (String) -> Bool = VaultNaming.isAgentVault) -> AccessPlan {
         var plan = AccessPlan()
         let vaultGrants = actual.filter { $0.target == .vault }
 
@@ -44,8 +46,8 @@ public struct AccessPlan: Equatable, Sendable {
             plan.actions.append(.revoke(vault: grant.name, shareID: grant.shareID, role: grant.role))
         }
 
-        for grant in vaultGrants where !VaultNaming.isAgentVault(grant.name) {
-            plan.notes.append("Vault '\(grant.name)' heisst nicht \(VaultNaming.agentPrefix)…, war aber freigegeben. lw apply entzieht ihn; mit lw audit prüfen, was der Agent gelesen hat")
+        for grant in vaultGrants where !allowed(grant.name) {
+            plan.notes.append("Vault '\(grant.name)' war freigegeben, gehört aber nicht zu diesem Agent. lw entzieht ihn; mit lw audit prüfen, was der Agent gelesen hat")
         }
         for grant in actual where grant.target != .vault {
             plan.notes.append("\(grant.target.rawValue) '\(grant.name)' (\(grant.role)) steht nicht in der Konfiguration; lw lässt den Zugriff unverändert")

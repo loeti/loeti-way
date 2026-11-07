@@ -16,11 +16,16 @@ struct AuditCommand: AsyncParsableCommand {
     @Option(help: "Höchstens so viele Einträge.")
     var limit = 50
 
+    @Flag(help: "Den Host-Agent zeigen: wer auf dem Mac Tokens geladen hat.")
+    var host = false
+
     mutating func run() async throws {
         let context = try AppContext.make(options)
-        let config = try context.customer(customer).config
-        try context.pass.ensureUserSession()
-        let status = try context.pass.monitor(agent: config.agentName, limit: limit)
+        let name = host ? context.global.hostAgent : try context.customer(customer).config.agentName
+        let limit = limit
+        let status = try await context.withAccount { pass in
+            try pass.monitor(agent: name, limit: limit)
+        }
         if status != 0 {
             throw ExitCode(status)
         }

@@ -67,17 +67,44 @@ struct PassCLITests {
         #expect(throws: PassCLI.notFound) { try pass.listItems(vault: "X") }
     }
 
-    @Test("a token session is refused, a user session accepted")
+    @Test("a token session is refused where the account is needed")
     func session() throws {
         let runner = FakeRunner()
         runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: asylum-kundea\n")
-        #expect(throws: LWError.self) { try PassCLI(runner: runner).ensureUserSession() }
+        #expect(throws: LWError.self) { try PassCLI(runner: runner).session().requireAccount() }
 
         runner.on(["info"], stdout: "- Release track: stable\n- ID: u1\n- Username: loeti\n")
-        try PassCLI(runner: runner).ensureUserSession()
+        try PassCLI(runner: runner).session().requireAccount()
 
         runner.on(["info"], status: 1)
-        #expect(throws: LWError.self) { try PassCLI(runner: runner).ensureUserSession() }
+        #expect(throws: LWError.self) { try PassCLI(runner: runner).session().requireAccount() }
+    }
+
+    @Test("session directory and reason go into the environment, the token never into arguments")
+    func environment() throws {
+        let runner = FakeRunner()
+        let pass = PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/host"), reason: "test")
+        try pass.login(token: "PROTON_PASS_PERSONAL_ACCESS_TOKEN=pst_abc::key")
+        _ = try? pass.read("pass://lw-tokens/X/note")
+        let login = try #require(runner.calls.first)
+        #expect(login.arguments == ["login"])
+        #expect(login.environment["PROTON_PASS_PERSONAL_ACCESS_TOKEN"] == "pst_abc::key")
+        #expect(runner.calls.allSatisfy { $0.sessionDirectory == "/s/host" && $0.environment["PROTON_PASS_AGENT_REASON"] == "test" })
+        #expect(!runner.calls.flatMap(\.arguments).contains { $0.contains("pst_") })
+        // Only the login sees the token.
+        #expect(runner.calls.dropFirst().allSatisfy { $0.environment["PROTON_PASS_PERSONAL_ACCESS_TOKEN"] == nil })
+
+        runner.on(["login"], status: 1, stderr: "bad")
+        #expect(throws: LWError.self) { try pass.login(token: "pst_abc::key") }
+    }
+
+    @Test("the child process never inherits PROTON_PASS_* from the shell")
+    func childEnvironment() {
+        let child = ProcessRunner.childEnvironment(
+            ["PATH": "/bin", "PROTON_PASS_PERSONAL_ACCESS_TOKEN": "pst_x", "PROTON_PASS_SESSION_DIR": "/default"],
+            adding: ["PROTON_PASS_SESSION_DIR": "/lw/host"]
+        )
+        #expect(child == ["PATH": "/bin", "PROTON_PASS_SESSION_DIR": "/lw/host"])
     }
 
     @Test("the session tells account, token and logged out apart")

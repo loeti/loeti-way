@@ -19,9 +19,6 @@ struct StatusCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
-        // Shown first and always: who can use pass-cli matters even without any customer.
-        let session = try context.pass.session()
-        print("Proton Pass: \(session)\n")
         let customers: [LoadedCustomer]
         var failures: [CustomerLocator.Failure] = []
         if let customer {
@@ -36,13 +33,10 @@ struct StatusCommand: AsyncParsableCommand {
             return
         }
 
-        try session.requireAccount()
-        let collector = StatusCollector(
-            pass: context.pass,
-            store: context.store,
-            checker: offline ? nil : LiveGitHubChecker()
-        )
-        let statuses = try await collector.collect(customers)
+        let checker: (any GitHubTokenChecker)? = offline ? nil : LiveGitHubChecker()
+        let statuses = try await context.withAccount { pass in
+            try await StatusCollector(pass: pass, store: context.store(pass), checker: checker).collect(customers)
+        }
         let now = Date()
         let blocks = statuses.map {
             $0.render(now: now, warnDays: context.global.warnDays, tokenVault: context.global.tokenVault)

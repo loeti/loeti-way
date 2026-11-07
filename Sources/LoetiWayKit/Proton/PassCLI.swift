@@ -45,34 +45,68 @@ public struct VaultItem: Equatable, Sendable {
     }
 }
 
-/// Typed wrapper around the `pass-cli` commands lw needs. Secrets only travel over stdin
-/// or stdout, never as arguments. JSON shapes follow pass-cli's source (serde structs).
+/// Typed wrapper around the `pass-cli` commands lw needs. Secrets only travel over stdin,
+/// stdout or the environment, never as arguments. JSON shapes follow pass-cli's source.
+///
+/// Each instance belongs to one login: `sessionDirectory` becomes `PROTON_PASS_SESSION_DIR`,
+/// see `SessionStore`. Agents must give a `reason` for reading items.
 public struct PassCLI {
     public static let tokenPrefix = "PROTON_PASS_PERSONAL_ACCESS_TOKEN="
+    static let tokenVariable = "PROTON_PASS_PERSONAL_ACCESS_TOKEN"
+    static let sessionVariable = "PROTON_PASS_SESSION_DIR"
+    static let reasonVariable = "PROTON_PASS_AGENT_REASON"
 
     private let runner: any CommandRunner
+    public let sessionDirectory: URL?
+    public let reason: String?
 
-    public init(runner: any CommandRunner) {
+    public init(runner: any CommandRunner, sessionDirectory: URL? = nil, reason: String? = nil) {
         self.runner = runner
+        self.sessionDirectory = sessionDirectory
+        self.reason = reason
+    }
+
+    /// The same login with another reason for the audit log.
+    public func with(reason: String) -> PassCLI {
+        PassCLI(runner: runner, sessionDirectory: sessionDirectory, reason: reason)
+    }
+
+    var environment: [String: String] {
+        var environment: [String: String] = [:]
+        environment[Self.sessionVariable] = sessionDirectory?.path
+        environment[Self.reasonVariable] = reason
+        return environment
     }
 
     // MARK: Session
 
     /// Who pass-cli is logged in as, from `pass-cli info`.
     public func session() throws -> PassSession {
-        let result = try runner.run(["info"], stdin: nil)
+        let result = try runner.run(["info"], stdin: nil, environment: environment)
         if result.status == 127 { throw Self.notFound }
         guard result.status == 0 else { return .loggedOut }
         return PassSession.parse(info: result.stdoutString)
     }
 
-    /// Managing agents needs the user's own login, not a token session.
-    public func ensureUserSession() throws {
-        try session().requireAccount()
+    /// Logs in with an agent token. The token goes through the environment; `--pat` would show
+    /// it in the process list.
+    public func login(token: String) throws {
+        let result = try runner.run(["login"], stdin: nil, environment: environment.merging([Self.tokenVariable: Self.stripPrefix(token)]) { _, new in new })
+        if result.status == 127 { throw Self.notFound }
+        guard result.status == 0 else {
+            throw LWError("Anmelden mit dem Agent-Token ist fehlgeschlagen. Ist er abgelaufen oder erneuert worden?")
+        }
     }
 
-    public func logout() throws {
-        try call(["logout"])
+    /// The web login of the user's account, in the browser.
+    public func loginInteractively() throws {
+        let status = try runner.runAttached(["login"], environment: environment)
+        if status == 127 { throw Self.notFound }
+        guard status == 0 else { throw LWError("Anmelden bei Proton Pass ist fehlgeschlagen.") }
+    }
+
+    public func logout(force: Bool = false) throws {
+        try call(["logout"] + (force ? ["--force"] : []))
     }
 
     // MARK: Agents
@@ -124,7 +158,7 @@ public struct PassCLI {
     }
 
     public func monitor(agent: String, limit: Int) throws -> Int32 {
-        try runner.runAttached(["agent", "monitor", agent, "--limit", String(limit)])
+        try runner.runAttached(["agent", "monitor", agent, "--limit", String(limit)], environment: environment)
     }
 
     // MARK: Items
@@ -149,9 +183,14 @@ public struct PassCLI {
     }
 
     public func readNote(vault: String, title: String) throws -> String {
-        let result = try call(["item", "view", Self.reference(vault: vault, item: title)])
+        try read(Self.reference(vault: vault, item: title))
+    }
+
+    /// One field, addressed as `pass://<vault>/<item>/<field>`.
+    public func read(_ reference: String) throws -> String {
+        let result = try call(["item", "view", reference])
         let value = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { throw LWError("'\(title)' in '\(vault)' ist leer") }
+        guard !value.isEmpty else { throw LWError("'\(reference)' ist leer") }
         return value
     }
 
@@ -165,7 +204,7 @@ public struct PassCLI {
 
     @discardableResult
     func call(_ arguments: [String], stdin: Data? = nil) throws -> CommandResult {
-        let result = try runner.run(arguments, stdin: stdin)
+        let result = try runner.run(arguments, stdin: stdin, environment: environment)
         if result.status == 127 { throw Self.notFound }
         guard result.status == 0 else {
             let command = arguments.prefix { !$0.hasPrefix("-") }.joined(separator: " ")

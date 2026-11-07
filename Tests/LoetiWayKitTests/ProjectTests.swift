@@ -177,7 +177,7 @@ struct ProjectTests {
         #expect(broken.needsAttention(now: now, warnDays: 14))
     }
 
-    @Test("the project template resolves, the .envrc chains to the customer's")
+    @Test("the project template resolves")
     func scaffold() throws {
         let customer = try kundeA()
         let template = Scaffold.projectTemplate(project: "web", customer: customer, githubOwner: nil)
@@ -192,11 +192,7 @@ struct ProjectTests {
 
         let withOwner = Scaffold.projectTemplate(project: "web", customer: customer, githubOwner: "other-org")
         #expect(try ProjectConfig.resolve(withOwner, folder: folder, customer: customer).github.settings.owner == "other-org")
-
-        let envrc = Scaffold.projectEnvrc(target: project.github, tokenVault: "lw-tokens")
-        #expect(envrc.contains("source_up_if_exists"))
-        #expect(envrc.contains(#"export ASYLUM_GH_TOKEN="$(pass-cli item view "pass://lw-tokens/KundeA web GitHub PAT/note")""#))
-        #expect(!envrc.contains("ASYLUM_PROTON_PASS_PAT"))
+        #expect(!template.contains("project:"))
     }
 
     @Test("project files go into .git/info/exclude once, and only in a git repo")

@@ -141,11 +141,20 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
     public var customer: String
     public var proton: ProtonSettings
     public var github: GitHubSettings?
+    /// Variable name → `pass://<vault>/<item>/<field>` in one of `proton.vaults`. `lw env` reads
+    /// them with the customer's agent and exports the values.
+    public var env: [String: String]?
 
-    public init(customer: String, proton: ProtonSettings, github: GitHubSettings? = nil) {
+    public init(customer: String, proton: ProtonSettings, github: GitHubSettings? = nil, env: [String: String]? = nil) {
         self.customer = customer
         self.proton = proton
         self.github = github
+        self.env = env
+    }
+
+    /// `env` sorted by name.
+    public var envEntries: [(name: String, reference: String)] {
+        (env ?? [:]).sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
     public var agentName: String { proton.agent ?? "asylum-\(Slug.make(customer))" }
@@ -203,6 +212,20 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
         if let github {
             problems += github.problems(section: "github")
         }
+        let granted = Set(proton.vaults.map(\.name))
+        for (name, reference) in envEntries {
+            if let problem = EnvNaming.problem(variable: name) {
+                problems.append("'env.\(name)': \(problem)")
+            }
+            switch PassReference(reference) {
+            case nil:
+                problems.append("'env.\(name)': '\(reference)' ist keine Referenz der Form pass://<vault>/<eintrag>/<feld>")
+            case let parsed? where parsed.vault == tokenVault || !granted.contains(parsed.vault):
+                problems.append("'env.\(name)': Vault '\(parsed.vault)' steht nicht in 'proton.vaults'; der Agent könnte ihn nicht lesen")
+            default:
+                break
+            }
+        }
         if !problems.isEmpty {
             throw LWError(problems.joined(separator: "\n"))
         }
@@ -253,11 +276,7 @@ public struct LoadedCustomer: Sendable, Equatable {
         }
         if let cwd {
             if let project = project(containing: cwd) { return project.github }
-            let path = cwd.standardizedFileURL.path
-            if let failure = projectFailures.first(where: {
-                let folder = $0.file.deletingLastPathComponent().standardizedFileURL.path
-                return path == folder || path.hasPrefix(folder + "/")
-            }) {
+            if let failure = projectFailure(containing: cwd) {
                 // Never fall back to the customer's wider token inside a broken project.
                 throw LWError(failure.message)
             }
@@ -266,6 +285,15 @@ public struct LoadedCustomer: Sendable, Equatable {
         let known = projects.map(\.name).joined(separator: ", ")
         throw LWError("\(config.customer) hat keinen github-Abschnitt in \(CustomerConfig.fileName)"
             + (known.isEmpty ? "" : ". Projekt-PATs: \(known) (--project <name>)"))
+    }
+
+    /// The broken project config whose folder is `url` or contains it.
+    public func projectFailure(containing url: URL) -> CustomerLocator.Failure? {
+        let path = url.standardizedFileURL.path
+        return projectFailures.first {
+            let folder = $0.file.deletingLastPathComponent().standardizedFileURL.path
+            return path == folder || path.hasPrefix(folder + "/")
+        }
     }
 
     /// `name` matches the project name or its folder name, case-insensitively.

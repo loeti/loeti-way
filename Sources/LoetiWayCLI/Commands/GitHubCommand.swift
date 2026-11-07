@@ -17,7 +17,6 @@ struct GitHubCommand: AsyncParsableCommand {
     )
 
     @OptionGroup var options: CommonOptions
-    @OptionGroup var login: LoginOptions
 
     @Argument(help: "Kunde (Name oder Ordner). Ohne Angabe: .loeti-way.yaml im aktuellen Verzeichnis oder darüber.")
     var customer: String?
@@ -33,14 +32,13 @@ struct GitHubCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
-        defer { context.endSession(keep: login.keepLogin) }
         let loaded = try context.customer(customer)
         let target = try loaded.githubTarget(project: project, cwd: customer == nil ? context.cwd : nil)
         try CustomerLocator.ensureUnclaimed(target, owner: loaded, root: context.global.root)
         let github = target.settings
         print("GitHub-PAT für \(target.label)")
-        try context.pass.ensureUserSession()
-        let stored = try context.store.items().contains { $0.title == target.tokenItem }
+        // The host agent can see whether a note exists; the account is only needed to store.
+        let stored = (try? context.store(context.host()).items().contains { $0.title == target.tokenItem }) ?? false
 
         let url: URL
         if stored && !createNew {
@@ -70,7 +68,9 @@ struct GitHubCommand: AsyncParsableCommand {
             throw LWError("Das ist kein Fine-grained PAT (beginnt nicht mit github_pat_). Nichts geändert.")
         }
         let info = try await LiveGitHubChecker().check(token: token)
-        try context.storeToken(token, title: target.tokenItem)
+        try await context.withAccount { pass in
+            try context.storeToken(token, title: target.tokenItem, in: context.store(pass))
+        }
         print("✓ Token von @\(info.login), \(Format.expiry(info.expires, now: Date())). Abgelegt in '\(context.global.tokenVault)' / '\(target.tokenItem)'.")
         print("\n\(Scaffold.restartHint)")
     }

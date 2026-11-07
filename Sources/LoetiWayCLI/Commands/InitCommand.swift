@@ -56,7 +56,7 @@ struct InitCommand: AsyncParsableCommand {
 
         if !noEnvrc {
             let envrcFile = folder.appendingPathComponent(".envrc")
-            let envrc = Scaffold.envrc(config: loaded.config, tokenVault: context.global.tokenVault)
+            let envrc = Scaffold.envrc
             if fileManager.fileExists(atPath: envrcFile.path) {
                 print("= \(envrcFile.path) gibt es schon. Falls noch nicht drin, ergänzen:\n")
                 print(envrc)
@@ -70,14 +70,14 @@ struct InitCommand: AsyncParsableCommand {
         print("""
 
         Nächste Schritte:
-          1. Vaults und Rollen in \(CustomerConfig.fileName) prüfen
+          1. Vaults, Rollen und env: in \(CustomerConfig.fileName) prüfen
           2. lw apply \(name)      Agent anlegen und Vaults freigeben
           3. lw github \(name)     GitHub-PAT anlegen und ablegen
           4. direnv allow \(folder.path)
 
-        Einmalig für alle Kunden:
+        Einmalig für alle Kunden: lw host --setup (Host-Agent, liest die Tokens für lw env), und
 
-        \(Scaffold.asylumConfigSnippet)
+        \(Scaffold.asylumConfigSnippet(env: loaded.config.envEntries.map(\.name)))
         """)
     }
 
@@ -115,7 +115,7 @@ struct InitCommand: AsyncParsableCommand {
 
         if !noEnvrc {
             let envrcFile = folder.appendingPathComponent(".envrc")
-            let envrc = Scaffold.projectEnvrc(target: project.github, tokenVault: context.global.tokenVault)
+            let envrc = Scaffold.envrc
             if fileManager.fileExists(atPath: envrcFile.path) {
                 print("= \(envrcFile.path) gibt es schon. Falls noch nicht drin, ergänzen:\n")
                 print(envrc)

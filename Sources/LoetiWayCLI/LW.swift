@@ -10,13 +10,19 @@ struct LW: AsyncParsableCommand {
         discussion: """
         Jeder Kundenordner hat eine .loeti-way.yaml. lw legt danach einen Proton-Pass-Agent an,
         gibt ihm genau die konfigurierten Vaults frei und legt seinen Token und den GitHub-PAT als
-        Notizen im Token-Vault ab, auf den kein Agent Zugriff hat. Die .envrc liest sie von dort.
+        Notizen im Token-Vault ab. Diesen Vault liest nur der Host-Agent (lw host): Beim Betreten
+        eines Ordners setzt `lw env` (aus der .envrc) die Variablen, Asylum reicht sie weiter.
 
-        Globale Einstellungen: ~/.config/loeti-way/config.yaml (root, token_vault, warn_days).
+        Dein Konto meldet lw nur an, solange ein Befehl es braucht (apply, renew, github, audit,
+        status), in einer eigenen Sitzung, die danach gelöscht wird.
+
+        Globale Einstellungen: ~/.config/loeti-way/config.yaml (root, token_vault, host_agent, warn_days).
         """,
         version: "0.1.0",
         subcommands: [
             StatusCommand.self,
+            EnvCommand.self,
+            HostCommand.self,
             InitCommand.self,
             ApplyCommand.self,
             RenewCommand.self,
@@ -27,11 +33,6 @@ struct LW: AsyncParsableCommand {
     )
 }
 
-struct LoginOptions: ParsableArguments {
-    @Flag(name: .customLong("keep-login"), help: "Danach bei Proton Pass angemeldet bleiben. Standard: abmelden, damit kein anderer Prozess dein Konto benutzen kann.")
-    var keepLogin = false
-}
-
 struct CommonOptions: ParsableArguments {
     @Option(help: "Verzeichnis, unter dem die Kunden liegen (Standard: root aus der Konfiguration).")
     var root: String?
@@ -40,12 +41,27 @@ struct CommonOptions: ParsableArguments {
     var tokenVault: String?
 }
 
-/// What every command needs: settings, pass-cli, the token vault.
+/// What every command needs: settings and the pass-cli logins.
 struct AppContext {
     let global: GlobalConfig
-    let pass: PassCLI
+    let sessions: SessionStore
 
-    var store: TokenStore { TokenStore(pass: pass, vault: global.tokenVault) }
+    func store(_ pass: PassCLI) -> TokenStore {
+        TokenStore(pass: pass, vault: global.tokenVault)
+    }
+
+    /// Logs the account in (browser), runs `body`, logs out and deletes the session.
+    func withAccount<T>(_ body: (PassCLI) async throws -> T) async throws -> T {
+        Console.error("Anmelden mit deinem Proton-Konto (Browser) …")
+        let result = try await sessions.withAccount(body)
+        Console.error("Von deinem Proton-Konto abgemeldet.")
+        return result
+    }
+
+    /// The host agent's login, logging in with `host-token` if needed.
+    func host() throws -> PassCLI {
+        try sessions.agent(SessionStore.host) { try HostToken.read(global.hostTokenFile) }
+    }
 
     static func make(_ options: CommonOptions) throws -> AppContext {
         // A child process that exits early must not kill lw while it writes to its stdin.
@@ -60,7 +76,7 @@ struct AppContext {
         }
         try global.validate()
         let runner = ProcessRunner(executable: environment["LW_PASS_CLI"] ?? "pass-cli")
-        return AppContext(global: global, pass: PassCLI(runner: runner))
+        return AppContext(global: global, sessions: SessionStore(base: global.sessionsDirectory, runner: runner))
     }
 
     var cwd: URL { URL(fileURLWithPath: FileManager.default.currentDirectoryPath) }
@@ -70,27 +86,18 @@ struct AppContext {
         let customer = try CustomerLocator.resolve(name: name, cwd: cwd, root: global.root)
         do {
             try customer.config.validate(tokenVault: global.tokenVault)
+            if customer.config.agentName == global.hostAgent {
+                throw LWError("Agent '\(global.hostAgent)' ist der Host-Agent und kann nicht zu einem Kunden gehören")
+            }
         } catch {
             throw LWError("\(customer.file.path):\n\(error)")
         }
         return customer
     }
 
-    /// Logs out of the account after a command that needed it. The login is shared by every
-    /// process of this macOS user, so an agent started outside Asylum could otherwise use it.
-    func endSession(keep: Bool) {
-        guard !keep, (try? pass.session())?.isAccount == true else { return }
-        do {
-            try pass.logout()
-            Console.error("Von Proton Pass abgemeldet (--keep-login, um angemeldet zu bleiben).")
-        } catch {
-            Console.error("Abmelden fehlgeschlagen: \(error)\nVon Hand: pass-cli logout")
-        }
-    }
-
     /// Stores a freshly issued token. The old one is already invalid at this point, so if
     /// storing fails the token is shown once instead of being lost.
-    func storeToken(_ token: String, title: String) throws {
+    func storeToken(_ token: String, title: String, in store: TokenStore) throws {
         do {
             try store.save(title: title, token: token)
         } catch {

@@ -10,7 +10,6 @@ struct ApplyCommand: AsyncParsableCommand {
     )
 
     @OptionGroup var options: CommonOptions
-    @OptionGroup var login: LoginOptions
 
     @Argument(help: "Kunde (Name oder Ordner). Ohne Angabe: .loeti-way.yaml im aktuellen Verzeichnis oder darüber.")
     var customer: String?
@@ -23,11 +22,14 @@ struct ApplyCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let context = try AppContext.make(options)
-        defer { context.endSession(keep: login.keepLogin) }
         let config = try context.customer(customer).config
-        let pass = context.pass
-        try pass.ensureUserSession()
+        try await context.withAccount { pass in
+            try apply(config: config, pass: pass, context: context)
+        }
+    }
 
+    private func apply(config: CustomerConfig, pass: PassCLI, context: AppContext) throws {
+        let store = context.store(pass)
         let agent = try pass.listAgents().first { $0.name == config.agentName }
         let actual = try agent.map { try pass.listAccess(agentID: $0.id) } ?? []
         let plan = AccessPlan.make(desired: config.proton.vaults, actual: actual)
@@ -50,9 +52,10 @@ struct ApplyCommand: AsyncParsableCommand {
 
         if agent == nil {
             // Fails early if the token vault is missing, before a token exists that couldn't be stored.
-            _ = try context.store.items()
+            _ = try store.items()
             let token = try pass.createAgent(name: config.agentName, lifetime: config.proton.expiration)
-            try context.storeToken(token, title: config.protonTokenItem)
+            try context.storeToken(token, title: config.protonTokenItem, in: store)
+            try? context.sessions.reset(SessionStore.agent(customer: config.customer))
             print("  ✓ Agent angelegt, Token abgelegt")
         }
         for action in plan.actions {
@@ -66,8 +69,8 @@ struct ApplyCommand: AsyncParsableCommand {
         }
 
         if agent == nil {
-            print("\nIm Container meldet sich pass-cli mit PROTON_PASS_PERSONAL_ACCESS_TOKEN an. Dazu:\n")
-            print(Scaffold.asylumConfigSnippet)
+            print("\nAsylum reicht die Variablen von lw env in den Container. Einmalig:\n")
+            print(Scaffold.asylumConfigSnippet(env: config.envEntries.map(\.name)))
         }
     }
 }

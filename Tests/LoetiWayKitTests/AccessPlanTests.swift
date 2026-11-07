@@ -58,6 +58,6 @@ struct AccessPlanTests {
         let plan = AccessPlan.make(desired: desired, actual: actual)
         #expect(plan.actions == [.revoke(vault: "Persönlich", shareID: "s3", role: "viewer")])
         #expect(plan.notes.count == 1)
-        #expect(plan.notes[0].contains("'Persönlich' heisst nicht agent-"))
+        #expect(plan.notes[0].contains("'Persönlich' war freigegeben"))
     }
 }

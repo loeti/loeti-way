@@ -48,16 +48,19 @@ struct ScaffoldTests {
         }
     }
 
-    @Test(".envrc holds references only and quotes for the shell")
+    @Test(".envrc only calls lw env: no secrets, no references, no pass-cli")
     func envrc() throws {
-        var config = try CustomerConfig.parse(Fixtures.kundeA)
-        config.proton.tokenItem = "Say \"hi\" $HOME"
-        let text = Scaffold.envrc(config: config, tokenVault: "lw-tokens")
-        #expect(text.contains(#"export ASYLUM_PROTON_PASS_PAT="$(pass-cli item view "pass://lw-tokens/Say \"hi\" \$HOME/note")""#))
-        #expect(text.contains(#"export ASYLUM_GH_TOKEN="$(pass-cli item view "pass://lw-tokens/KundeA GitHub PAT/note")""#))
+        #expect(Scaffold.envrc.contains(#"eval "$(lw env)""#))
+        #expect(!Scaffold.envrc.contains("pass://"))
+        #expect(!Scaffold.envrc.contains("pass-cli item"))
+    }
 
-        config.github = nil
-        #expect(!Scaffold.envrc(config: config, tokenVault: "lw-tokens").contains("ASYLUM_GH_TOKEN"))
+    @Test("no Proton token goes into the container, env values do")
+    func asylumSnippet() {
+        let snippet = Scaffold.asylumConfigSnippet(env: ["MAVEN_PASSWORD"])
+        #expect(snippet.contains("GH_TOKEN: ASYLUM_GH_TOKEN"))
+        #expect(snippet.contains("MAVEN_PASSWORD: MAVEN_PASSWORD"))
+        #expect(!snippet.contains("PROTON_PASS"))
     }
 }
 

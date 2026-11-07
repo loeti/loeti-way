@@ -6,23 +6,36 @@ final class FakeRunner: CommandRunner {
     struct Call: Equatable {
         let arguments: [String]
         let stdin: Data?
+        var environment: [String: String] = [:]
+
+        var sessionDirectory: String? { environment["PROTON_PASS_SESSION_DIR"] }
     }
 
     private var responses: [(prefix: [String], result: CommandResult)] = []
+    /// Answered first and used up, in order: for state changes such as a login.
+    private var onceResponses: [(prefix: [String], result: CommandResult)] = []
     private(set) var calls: [Call] = []
+    var attachedStatus: Int32 = 0
 
     func on(_ prefix: [String], status: Int32 = 0, stdout: String = "", stderr: String = "") {
         responses.append((prefix, CommandResult(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))))
     }
 
-    func run(_ arguments: [String], stdin: Data?) throws -> CommandResult {
-        calls.append(Call(arguments: arguments, stdin: stdin))
+    func once(_ prefix: [String], status: Int32 = 0, stdout: String = "", stderr: String = "") {
+        onceResponses.append((prefix, CommandResult(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))))
+    }
+
+    func run(_ arguments: [String], stdin: Data?, environment: [String: String]) throws -> CommandResult {
+        calls.append(Call(arguments: arguments, stdin: stdin, environment: environment))
+        if let index = onceResponses.firstIndex(where: { arguments.starts(with: $0.prefix) }) {
+            return onceResponses.remove(at: index).result
+        }
         return responses.last { arguments.starts(with: $0.prefix) }?.result ?? CommandResult(status: 0)
     }
 
-    func runAttached(_ arguments: [String]) throws -> Int32 {
-        calls.append(Call(arguments: arguments, stdin: nil))
-        return 0
+    func runAttached(_ arguments: [String], environment: [String: String]) throws -> Int32 {
+        calls.append(Call(arguments: arguments, stdin: nil, environment: environment))
+        return attachedStatus
     }
 
     /// Calls that change something in Proton Pass, as joined argument strings.

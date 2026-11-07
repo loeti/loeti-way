@@ -1,6 +1,7 @@
 import Foundation
 
-/// The login pass-cli uses. It is shared by every process of the macOS user, not per shell.
+/// Who is logged in, in one `PROTON_PASS_SESSION_DIR`. Without that variable pass-cli uses a
+/// default directory that every process of the macOS user shares; lw never logs in there.
 public enum PassSession: Equatable, Sendable, CustomStringConvertible {
     /// The user's own account: full access to every vault.
     case account(username: String?)
@@ -42,8 +43,8 @@ public enum PassSession: Equatable, Sendable, CustomStringConvertible {
     public func requireAccount() throws {
         switch self {
         case .account: return
-        case .token: throw LWError("pass-cli ist mit einem Token angemeldet, nicht mit deinem Konto. Agents kann nur dein Konto verwalten: `pass-cli logout`, dann `pass-cli login`.")
-        case .loggedOut: throw LWError("Nicht bei Proton Pass angemeldet. Zuerst `pass-cli login` ausführen.")
+        case .token: throw LWError("Mit einem Agent-Token angemeldet, nicht mit deinem Konto. Agents kann nur dein Konto verwalten.")
+        case .loggedOut: throw LWError("Nicht mit deinem Konto bei Proton Pass angemeldet.")
         }
     }
 }

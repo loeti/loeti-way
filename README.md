@@ -2,10 +2,12 @@
 
 `lw` verwaltet pro Kunde die Zugänge, die Coding-Agents in [Asylum](https://github.com/inventage-ai/asylum)-Containern bekommen:
 
-- einen **Proton-Pass-Agent** (ein PAT mit Audit-Log) mit genau den Vaults des Kunden
-- einen **GitHub Fine-grained PAT** für die Repos des Kunden
+- einen **GitHub Fine-grained PAT** für die Repos des Kunden oder eines Projekts
+- Werte aus den Vaults des Kunden (z.B. ein Maven-Passwort), gelesen von einem **Proton-Pass-Agent** des Kunden (ein PAT mit Audit-Log)
 
-Beide Tokens liegen als Notizen in einem eigenen **Token-Vault**, auf den kein Agent Zugriff hat. Die `.envrc` im Kundenordner liest sie von dort, Asylum reicht sie in den Container weiter. Hintergrund: [Asylum-Setup](https://github.com/loeti/agent-skills/blob/main/docs/asylum-setup.md).
+Die Tokens liegen als Notizen in einem eigenen **Token-Vault**. Lesen darf ihn nur der **Host-Agent**, der auf dem Mac angemeldet bleibt. Wechselst du in einen Kunden- oder Projektordner, ruft die `.envrc` `lw env` auf: Das setzt `ASYLUM_GH_TOKEN` und die Werte aus `env:`, Asylum reicht sie in den Container weiter. Im Container gibt es kein `pass-cli` und keinen Proton-Token. Hintergrund: [Asylum-Setup](https://github.com/loeti/agent-skills/blob/main/docs/asylum-setup.md).
+
+Dein eigenes Proton-Konto meldet `lw` nur an, solange ein Befehl es braucht, und meldet es danach wieder ab.
 
 ## Modell
 
@@ -13,22 +15,38 @@ Beide Tokens liegen als Notizen in einem eigenen **Token-Vault**, auf den kein A
 /Volumes/Code/
 ├── customers/
 │   ├── KundeA/
-│   │   ├── .loeti-way.yaml     welche Vaults, welche Rollen, welche GitHub-Org
-│   │   ├── .envrc              pass://-Referenzen auf den Token-Vault
+│   │   ├── .loeti-way.yaml     Vaults, Rollen, GitHub-Org, env:
+│   │   ├── .envrc              eval "$(lw env)"
 │   │   ├── projekt-a1/
 │   │   └── projekt-a2/
 │   │       ├── .loeti-way-project.yaml   optional: eigener GitHub-PAT nur für dieses Repo
-│   │       └── .envrc                    lädt die .envrc des Kunden, ersetzt den GitHub-Token
+│   │       └── .envrc                    eval "$(lw env)"
 │   └── KundeB/…
 ├── firma/.loeti-way.yaml
 └── loeti/.loeti-way.yaml
 
 Proton Pass
-├── agent-kundea, agent-kundea-infra, …   die Agents bekommen Zugriff, je nach Konfiguration
-├── lw-tokens                             nur dein Konto: "<Kunde> Proton Agent", "<Kunde> GitHub PAT",
+├── agent-kundea, agent-kundea-infra, …   der Agent des Kunden, je nach Konfiguration
+├── lw-tokens                             dein Konto und der Host-Agent (nur lesen):
+│                                         "<Kunde> Proton Agent", "<Kunde> GitHub PAT",
 │                                         "<Kunde> <Projekt> GitHub PAT"
 └── alle anderen                          privat, lw gibt sie nie frei
+
+~/.config/loeti-way/host-token            Token des Host-Agents, nur für dich lesbar (0600)
+~/.cache/loeti-way/sessions/              Anmeldungen von pass-cli, je eine pro Agent
 ```
+
+## Anmeldungen
+
+`lw` ruft `pass-cli` immer mit einem eigenen `PROTON_PASS_SESSION_DIR` auf. Die normale Anmeldung von `pass-cli`, die jeder Prozess deines macOS-Benutzers finden würde, bleibt leer.
+
+| Anmeldung | Wer | Wie lange | Wofür |
+|---|---|---|---|
+| `host` | Host-Agent, nur Viewer auf `lw-tokens` | bleibt | `lw env`, `lw host` |
+| `agent-<kunde>` | Agent des Kunden | bleibt | Werte aus `env:` |
+| `account` | dein Konto, Login im Browser | nur während des Befehls | `apply`, `renew`, `github` (zum Ablegen), `audit`, `status`, `host --setup/--renew` |
+
+Startest du auf dem Mac aus Versehen einen Agent, findet `pass-cli` keine Anmeldung, und in der Umgebung liegen nur die Werte des Ordners. Ein Prozess, der es darauf anlegt, kann `host-token` lesen und damit die Tokens aller Kunden, aber nicht dein Konto. Jeder Zugriff des Host-Agents steht im Audit-Log: `lw audit --host`.
 
 ## Vault-Namen
 
@@ -37,15 +55,15 @@ Zwei Vorsilben sind reserviert, `lw` setzt sie durch:
 | Vorsilbe | Wer liest | Beispiele |
 |---|---|---|
 | `agent-` | der Agent des Kunden | `agent-kundea`, `agent-kundea-infra` |
-| `lw-` | nur dein Konto, nie ein Agent | `lw-tokens` |
+| `lw-` | dein Konto und der Host-Agent, nie ein Kunden-Agent | `lw-tokens` |
 | keine davon | privat | `Persönlich`, `Firma`, … |
 
 - Nach der Vorsilbe folgen Kleinbuchstaben und Ziffern, mit `-` getrennt. So braucht es weder in der Shell noch in `pass://`-Referenzen Anführungszeichen.
 - Der Kundenteil entspricht dem Kundennamen in Kleinbuchstaben, `lw init` trägt `agent-<kunde>` ein.
 - Einen zweiten Vault (`agent-kundea-infra`) nur anlegen, wenn er Einträge anderer Vertraulichkeit enthält: Ein Agent bekommt immer den ganzen Vault.
 - `lw` lehnt in `proton.vaults` jeden Vault ohne `agent-` ab und verlangt für den Token-Vault `lw-`.
-- Ist einem Agent ein anderer Vault freigegeben (z.B. von Hand in Proton), meldet `lw status` das, und `lw apply` entzieht ihn.
-- Kunden-Vaults legt `lw` nicht an: `pass-cli vault create --name agent-kundea`.
+- Ist einem Agent ein anderer Vault freigegeben (z.B. von Hand in Proton), meldet `lw status` das, und `lw apply` entzieht ihn. Beim Host-Agent macht das `lw host --setup`.
+- Vaults legt `lw` nicht an: `pass-cli vault create --name agent-kundea`.
 
 ## Kundenkonfiguration
 
@@ -69,9 +87,20 @@ github:                         # optional
   permissions:                  # Standard: contents und pull_requests: write
     contents: write
     pull_requests: write
+
+env:                            # optional: lw env setzt diese Variablen
+  MAVEN_PASSWORD: pass://agent-kundea/Maven/password
 ```
 
 `lw` lehnt eine Konfiguration ab, die dem Agent den Token-Vault oder einen Vault ohne `agent-` freigeben würde.
+
+### env
+
+`lw env` liest jede Referenz mit dem Agent des Kunden und setzt die Variable. Damit Asylum sie in den Container reicht, gehört der Name in `env-from-host` (siehe [Neuer Kunde](#neuer-kunde)).
+
+- Die Referenz hat die Form `pass://<vault>/<eintrag>/<feld>`, der Vault muss in `proton.vaults` stehen.
+- Variablennamen bestehen aus `A-Z`, `0-9` und `_`. Namen, die beeinflussen, wie Programme laufen oder womit sie sich anmelden, sind gesperrt: `PATH`, `HOME`, `GH_TOKEN`, `DYLD_*`, `LD_*`, `PROTON_PASS_*`, `GIT_*`, `ASYLUM_*` und weitere.
+- `env:` gibt es nur beim Kunden, nicht in der Projektdatei.
 
 ## Projekt-PAT
 
@@ -88,9 +117,9 @@ github:                         # fehlende Werte kommen vom Kunden
   repositories: [projekt-a2]    # Standard: [<projekt>]
 ```
 
-`lw init --project` legt die Datei und eine `.envrc` an und trägt beide in `.git/info/exclude` ein, falls der Ordner ein git-Repo ist. Die `.envrc` lädt zuerst die des Kunden (`source_up_if_exists`) und setzt dann `ASYLUM_GH_TOKEN` neu. Fehlt der Projekt-Token, bleibt die Variable leer; es gibt keinen Rückfall auf den breiteren Kunden-PAT. `lw` sucht Projekte bis 2 Ebenen unter dem Kundenordner.
+`lw init --project` legt die Datei und eine `.envrc` an und trägt beide in `.git/info/exclude` ein, falls der Ordner ein git-Repo ist. `lw env` nimmt im Projektordner den PAT des Projekts. Fehlt er oder ist die Projektdatei kaputt, bleibt `ASYLUM_GH_TOKEN` leer; es gibt keinen Rückfall auf den breiteren Kunden-PAT. `lw` sucht Projekte bis 2 Ebenen unter dem Kundenordner.
 
-Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde> <Ordner> GitHub PAT`. `token_item` gibt es nur beim Kunden, und `project` ist nur erlaubt, wenn es den Ordnernamen wiederholt. Haben zwei Projekte denselben Ordnernamen, lehnt `lw` beide ab. Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw init --project` und `lw github` ab.
+Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde> <Ordner> GitHub PAT`. `token_item` gibt es nur beim Kunden, und `project` ist nur erlaubt, wenn es den Ordnernamen wiederholt. Haben zwei Projekte denselben Ordnernamen, lehnt `lw` beide ab. Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw env`, `lw init --project` und `lw github` ab.
 
 `token_name` gibt es auch beim Kunden. Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
 
@@ -101,32 +130,54 @@ Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde
 ```yaml
 root: /Volumes/Code          # hier sucht lw nach Kunden (bis 3 Ebenen tief)
 token_vault: lw-tokens       # muss mit lw- beginnen
+host_agent: lw-host          # Name des Host-Agents in Proton Pass
 warn_days: 14                # ab hier meldet `lw status` ablaufende Tokens
 ```
 
-Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cli`).
+Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cli`), `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`.
 
 ## Kommandos
 
-`lw` läuft auf dem Host, mit deinem eigenen `pass-cli login`. Ohne Kundenangabe gilt die `.loeti-way.yaml` im aktuellen Verzeichnis oder darüber.
+`lw` läuft auf dem Mac. Ohne Kundenangabe gilt die `.loeti-way.yaml` im aktuellen Verzeichnis oder darüber.
 
-`apply`, `renew` und `github` melden dich danach bei Proton Pass ab, auch wenn sie fehlschlagen. Mit `--keep-login` bleibst du angemeldet. `status` zeigt zuoberst, wer angemeldet ist.
-
-| Kommando | Wirkung |
-|---|---|
-| `status [kunde] [--offline]` | Wer bei `pass-cli` angemeldet ist; alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
-| `init [ordner] [--github-owner org] [--project]` | `.loeti-way.yaml` (bzw. mit `--project` `.loeti-way-project.yaml`) und `.envrc` anlegen, bestehende Dateien bleiben |
-| `apply [kunde] [--dry-run] [-y]` | Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
-| `renew [kunde] [--expiration 6m] [-y]` | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
-| `github [kunde] [--project name] [--new] [--no-open]` | GitHub-Formular öffnen (vorausgefüllt bzw. "Regenerate"), Token einfügen, prüfen, ablegen. Ohne Kundenangabe gilt das Projekt, in dem du gerade bist |
-| `audit [kunde] [--limit 50]` | Was der Agent gelesen hat, mit Begründung (`pass-cli agent monitor`) |
+| Kommando | Konto | Wirkung |
+|---|---|---|
+| `env [ordner]` | nein | `export`-Zeilen für die `.envrc`. Probleme auf stderr, betroffene Variablen werden entfernt, Status immer 0 |
+| `host` | nein | `host-token` und Anmeldung des Host-Agents prüfen |
+| `host --setup [-y]` | ja | Host-Agent anlegen, falls er fehlt; nur `lw-tokens` als Viewer freigeben, andere Freigaben entziehen |
+| `host --renew [--expiration 3m]` | ja | Token des Host-Agents erneuern und in `host-token` schreiben |
+| `host --set-token` | nein | Einen vorhandenen Token in `host-token` ablegen und anmelden |
+| `status [kunde] [--offline]` | ja | Alle Kunden: Ablaufdaten, abweichende Rechte, fehlende Tokens. Status 1, wenn etwas zu tun ist |
+| `init [ordner] [--github-owner org] [--project]` | nein | `.loeti-way.yaml` (bzw. mit `--project` `.loeti-way-project.yaml`) und `.envrc` anlegen, bestehende Dateien bleiben |
+| `apply [kunde] [--dry-run] [-y]` | ja | Agent anlegen, falls er fehlt; Vault-Rechte abgleichen (fehlende freigeben, andere entziehen) |
+| `renew [kunde] [--expiration 6m] [-y]` | ja | Agent-Token erneuern und ablegen. Der alte wird sofort ungültig |
+| `github [kunde] [--project name] [--new] [--no-open]` | zum Ablegen | GitHub-Formular öffnen (vorausgefüllt bzw. "Regenerate"), Token einfügen, prüfen, ablegen. Ohne Kundenangabe gilt das Projekt, in dem du gerade bist |
+| `audit [kunde] [--host] [--limit 50]` | ja | Was der Agent (bzw. der Host-Agent) gelesen hat, mit Begründung (`pass-cli agent monitor`) |
 
 Item- und Ordner-Freigaben, die nicht in der Konfiguration stehen, zeigt `lw` an, ändert sie aber nicht.
+
+## Einmalig
+
+```sh
+pass-cli vault create --name lw-tokens
+lw host --setup                       # Host-Agent anlegen, Token in host-token, anmelden
+```
+
+Hast du den Host-Agent schon in Proton angelegt: `lw host --set-token`, danach `lw host --setup`, um seine Rechte zu prüfen.
+
+In `~/.asylum/config.yaml` (nicht gesetzte Variablen überspringt Asylum, die Liste darf also alle Kunden abdecken):
+
+```yaml
+env-from-host:
+  GH_TOKEN: ASYLUM_GH_TOKEN
+  MAVEN_PASSWORD: MAVEN_PASSWORD      # je Name aus env:
+```
+
+`lw` muss für direnv im `PATH` liegen.
 
 ## Neuer Kunde
 
 ```sh
-pass-cli vault create --name lw-tokens          # einmalig
 pass-cli vault create --name agent-kundea
 cd /Volumes/Code/customers/KundeA
 lw init --github-owner kundea-org
@@ -136,21 +187,13 @@ lw github
 direnv allow
 ```
 
-Einmalig in `~/.asylum/config.yaml`:
-
-```yaml
-env-from-host:
-  GH_TOKEN: ASYLUM_GH_TOKEN
-  PROTON_PASS_PERSONAL_ACCESS_TOKEN: ASYLUM_PROTON_PASS_PAT
-```
-
 Nach `renew` oder `github`: `direnv reload` in offenen Shells, dann alle Asylum-Sitzungen des Kunden beenden. Der Token gilt ab der Erstellung des Containers.
 
 ## Sicherheit
 
-- Die `pass-cli`-Anmeldung gilt für deinen ganzen macOS-Benutzer, nicht pro Shell: Jeder Prozess, auch ein Agent ausserhalb von Asylum, kann sie benutzen. Darum meldet `lw` dich nach Änderungen ab. Wer gerade angemeldet ist: `pass-cli info` (`Username` = dein Konto, `Personal Access Token` = ein Agent).
-- Tokens gehen nie als Argument an `pass-cli` (sichtbar in `ps`), sondern über stdin.
+- Tokens gehen nie als Argument an `pass-cli` (sichtbar in `ps`), sondern über stdin oder die Umgebung. Variablen `PROTON_PASS_*` aus deiner Shell gibt `lw` nicht an `pass-cli` weiter.
 - Ein neuer Token wird zuerst abgelegt, erst dann wird die alte Notiz gelöscht. Scheitert das Ablegen, zeigt `lw` den Token einmal an, statt ihn zu verlieren.
+- `host-token` wird von Anfang an mit `0600` geschrieben; ist die Datei für andere lesbar, verweigert `lw` sie.
 - Vor `apply` und `renew` prüft `lw`, ob es den Token-Vault gibt.
 
 ## Installation

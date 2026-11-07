@@ -18,16 +18,19 @@ public struct CommandResult: Sendable, Equatable {
 /// Runs one external tool. Tests replace it with a fake, so nothing in the kit starts a
 /// process directly.
 public protocol CommandRunner {
-    /// Captures stdout and stderr. `stdin` is the only way to hand secrets to the tool:
-    /// arguments are visible in the process list.
-    func run(_ arguments: [String], stdin: Data?) throws -> CommandResult
+    /// Captures stdout and stderr. `stdin` and `environment` are the only ways to hand secrets
+    /// to the tool: arguments are visible in the process list.
+    func run(_ arguments: [String], stdin: Data?, environment: [String: String]) throws -> CommandResult
 
-    /// Inherits the terminal, for output meant for the user.
-    func runAttached(_ arguments: [String]) throws -> Int32
+    /// Inherits the terminal, for output meant for the user and for interactive logins.
+    func runAttached(_ arguments: [String], environment: [String: String]) throws -> Int32
 }
 
 /// Starts `executable` through `/usr/bin/env`, so it is looked up in `PATH`.
 /// A missing executable ends with status 127.
+///
+/// The child gets lw's environment without any `PROTON_PASS_*` variable, plus `environment`:
+/// which pass-cli login is used is always decided by lw, never by the calling shell.
 public struct ProcessRunner: CommandRunner {
     public let executable: String
 
@@ -35,8 +38,8 @@ public struct ProcessRunner: CommandRunner {
         self.executable = executable
     }
 
-    public func run(_ arguments: [String], stdin: Data?) throws -> CommandResult {
-        let process = makeProcess(arguments)
+    public func run(_ arguments: [String], stdin: Data?, environment: [String: String]) throws -> CommandResult {
+        let process = makeProcess(arguments, environment: environment)
         let outPipe = Pipe()
         let errPipe = Pipe()
         process.standardOutput = outPipe
@@ -69,8 +72,8 @@ public struct ProcessRunner: CommandRunner {
         return CommandResult(status: process.terminationStatus, stdout: outData, stderr: errData)
     }
 
-    public func runAttached(_ arguments: [String]) throws -> Int32 {
-        let process = makeProcess(arguments)
+    public func runAttached(_ arguments: [String], environment: [String: String]) throws -> Int32 {
+        let process = makeProcess(arguments, environment: environment)
         do {
             try process.run()
         } catch {
@@ -80,11 +83,16 @@ public struct ProcessRunner: CommandRunner {
         return process.terminationStatus
     }
 
-    private func makeProcess(_ arguments: [String]) -> Process {
+    private func makeProcess(_ arguments: [String], environment: [String: String]) -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
+        process.environment = Self.childEnvironment(ProcessInfo.processInfo.environment, adding: environment)
         return process
+    }
+
+    static func childEnvironment(_ inherited: [String: String], adding extra: [String: String]) -> [String: String] {
+        inherited.filter { !$0.key.hasPrefix("PROTON_PASS_") }.merging(extra) { _, new in new }
     }
 }
 
