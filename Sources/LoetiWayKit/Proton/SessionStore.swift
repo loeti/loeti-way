@@ -49,10 +49,17 @@ public struct SessionStore {
     }
 
     /// Throws away the login in `name` and logs in again with `token`, e.g. after a renewal.
+    /// A failed login is tried once more in a fresh directory: leftovers of an older login
+    /// (seen after `lw renew`) can make the first attempt fail with a valid token.
     public func relogin(_ name: String, expected: String, token: String) throws -> PassCLI {
         try reset(name)
         let pass = pass(name)
-        try pass.login(token: token)
+        do {
+            try pass.login(token: token)
+        } catch {
+            try reset(name)
+            try pass.login(token: token)
+        }
         guard case let .token(agent) = try pass.session() else {
             throw LWError("Nach dem Anmelden mit dem Agent-Token meldet pass-cli keine Agent-Sitzung.")
         }

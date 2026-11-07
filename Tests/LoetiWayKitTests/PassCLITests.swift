@@ -98,6 +98,47 @@ struct PassCLITests {
         #expect(throws: LWError.self) { try pass.login(token: "pst_abc::key") }
     }
 
+    @Test("a failed login shows pass-cli's message, never a token")
+    func loginFailureMessage() throws {
+        let runner = FakeRunner()
+        let pass = PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/agent-x"))
+        runner.on(["login"], status: 1, stderr: """
+            Error: Error in personal access token login flow
+
+            Caused by:
+                0: Invalid token pst_abcdefgh123::secretkey99
+                1: key secretkey99 rejected
+                2: Unauthorized
+            """)
+        do {
+            try pass.login(token: "pst_abcdefgh123::secretkey99")
+            Issue.record("login should fail")
+        } catch {
+            let message = "\(error)"
+            #expect(message.contains("Error in personal access token login flow"))
+            #expect(message.contains("2: Unauthorized"))
+            #expect(!message.contains("pst_"))
+            #expect(!message.contains("secretkey99"))
+            #expect(!message.contains("abcdefgh123"))
+        }
+    }
+
+    @Test("a failed agent login is tried once more in a fresh session directory")
+    func reloginRetry() throws {
+        let base = try Fixtures.temporaryDirectory()
+        let runner = FakeRunner()
+        runner.on(["info"], stdout: "- Personal Access Token: [Agent] agent-x\n")
+        runner.once(["login"], status: 1, stderr: "stale session")
+        let sessions = SessionStore(base: base, runner: runner)
+        _ = try sessions.relogin("agent-x", expected: "agent-x", token: "pst_abc::key")
+        #expect(runner.calls.filter { $0.arguments == ["login"] }.count == 2)
+
+        // Fails twice: gives up with pass-cli's message.
+        runner.on(["login"], status: 1, stderr: "Unauthorized")
+        #expect(throws: LWError.self) { try sessions.relogin("agent-x", expected: "agent-x", token: "pst_abc::key") }
+        #expect(runner.calls.filter { $0.arguments == ["login"] }.count == 4)
+    }
+
     @Test("the child process never inherits PROTON_PASS_* from the shell")
     func childEnvironment() {
         let child = ProcessRunner.childEnvironment(

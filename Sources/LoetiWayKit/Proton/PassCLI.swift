@@ -91,11 +91,25 @@ public struct PassCLI {
     /// Logs in with an agent token. The token goes through the environment; `--pat` would show
     /// it in the process list.
     public func login(token: String) throws {
-        let result = try runner.run(["login"], stdin: nil, environment: environment.merging([Self.tokenVariable: Self.stripPrefix(token)]) { _, new in new })
+        let token = Self.stripPrefix(token)
+        let result = try runner.run(["login"], stdin: nil, environment: environment.merging([Self.tokenVariable: token]) { _, new in new })
         if result.status == 127 { throw Self.notFound }
         guard result.status == 0 else {
-            throw LWError("Anmelden mit dem Agent-Token ist fehlgeschlagen. Ist er abgelaufen oder erneuert worden?")
+            let detail = Self.redacted(result.stderrString, token: token)
+            throw LWError("Anmelden mit dem Agent-Token ist fehlgeschlagen" + (detail.isEmpty ? "" : " (pass-cli: \(detail))") + ". Ist er abgelaufen oder erneuert worden?")
         }
+    }
+
+    /// pass-cli's message without any line that could carry a token.
+    static func redacted(_ message: String, token: String) -> String {
+        let secretParts = token.components(separatedBy: "::").filter { $0.count >= 8 }
+        return message.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { line in
+                line.contains("pst_") || secretParts.contains(where: line.contains) || line.contains(tokenPrefix) ? "[geschwärzt]" : line
+            }
+            .joined(separator: " / ")
     }
 
     /// The web login of the user's account, in the browser.
