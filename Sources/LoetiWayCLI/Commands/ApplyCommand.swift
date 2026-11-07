@@ -6,7 +6,10 @@ struct ApplyCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "apply",
         abstract: "Agent anlegen, falls er fehlt, und seine Vault-Rechte mit der Konfiguration abgleichen.",
-        discussion: "Zeigt zuerst, was sich ändert, und fragt dann nach. Vaults, die nicht in der Konfiguration stehen, werden entzogen."
+        discussion: """
+        Zeigt zuerst, was sich ändert, und fragt dann nach. Vaults, die nicht in der Konfiguration stehen, werden entzogen.
+        Registriert dabei Kunde und Projekte (Agent, Vaults, was lw env liest); erst dann liest lw env etwas für sie.
+        """
     )
 
     @OptionGroup var options: CommonOptions
@@ -26,13 +29,20 @@ struct ApplyCommand: AsyncParsableCommand {
         let config = loaded.config
         try register(loaded, context: context)
         try await context.withAccount { pass in
-            try apply(config: config, pass: pass, context: context)
+            try apply(config: config, variables: loaded.variables, pass: pass, context: context)
         }
     }
 
     /// Records the customer in customers.yaml after confirmation; only then does lw env read
     /// its notes. A change shows up here first, so a config edited by an agent can't slip through.
     private func register(_ loaded: LoadedCustomer, context: AppContext) throws {
+        // Broken projects aren't registered and get nothing from lw env; say so before anything changes.
+        if !loaded.projectFailures.isEmpty {
+            print("Projekte mit Fehlern (werden nicht registriert, lw env setzt dort nichts):")
+            for failure in loaded.projectFailures {
+                print("  ! " + failure.message.replacingOccurrences(of: "\n", with: "\n    "))
+            }
+        }
         var registry = try CustomerRegistry.load(context.global.registryFile)
         let changes = registry.changes(for: loaded)
         guard !changes.isEmpty else { return }
@@ -48,7 +58,7 @@ struct ApplyCommand: AsyncParsableCommand {
         print("  ✓ registriert")
     }
 
-    private func apply(config: CustomerConfig, pass: PassCLI, context: AppContext) throws {
+    private func apply(config: CustomerConfig, variables: [String], pass: PassCLI, context: AppContext) throws {
         let store = context.store(pass)
         let agent = try pass.listAgents().first { $0.name == config.agentName }
         let actual = try agent.map { try pass.listAccess(agentID: $0.id) } ?? []
@@ -90,7 +100,7 @@ struct ApplyCommand: AsyncParsableCommand {
 
         if agent == nil {
             print("\nAsylum reicht die Variablen von lw env in den Container. Einmalig:\n")
-            print(Scaffold.asylumConfigSnippet(env: config.envEntries.map(\.name)))
+            print(Scaffold.asylumConfigSnippet(variables: variables))
         }
     }
 }

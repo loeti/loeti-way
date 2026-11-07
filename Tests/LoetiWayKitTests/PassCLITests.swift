@@ -9,13 +9,13 @@ struct PassCLITests {
         let runner = FakeRunner()
         runner.on(["agent", "list"], stdout: """
         [
-          {"pat_id": "pat_1", "name": "asylum-kundea", "expire_time": 1800000000},
+          {"pat_id": "pat_1", "name": "agent-kundea", "expire_time": 1800000000},
           {"pat_id": "pat_2", "name": "other", "expire_time": null}
         ]
         """)
         let agents = try PassCLI(runner: runner).listAgents()
         #expect(agents == [
-            ProtonAgent(id: "pat_1", name: "asylum-kundea", expires: Date(timeIntervalSince1970: 1_800_000_000)),
+            ProtonAgent(id: "pat_1", name: "agent-kundea", expires: Date(timeIntervalSince1970: 1_800_000_000)),
             ProtonAgent(id: "pat_2", name: "other", expires: nil),
         ])
         #expect(runner.calls.first?.arguments == ["agent", "list", "--output", "json"])
@@ -47,11 +47,11 @@ struct PassCLITests {
         runner.on(["agent", "create"], stdout: output)
         runner.on(["agent", "renew"], stdout: output)
         let pass = PassCLI(runner: runner)
-        #expect(try pass.createAgent(name: "asylum-kundea", lifetime: .threeMonths) == "pst_abc::KEY")
-        #expect(try pass.renewAgent(name: "asylum-kundea", lifetime: .oneYear) == "pst_abc::KEY")
+        #expect(try pass.createAgent(name: "agent-kundea", lifetime: .threeMonths) == "pst_abc::KEY")
+        #expect(try pass.renewAgent(name: "agent-kundea", lifetime: .oneYear) == "pst_abc::KEY")
         #expect(runner.calls.map(\.arguments) == [
-            ["agent", "create", "asylum-kundea", "--expiration", "3m"],
-            ["agent", "renew", "asylum-kundea", "--expiration", "1y", "--output", "json"],
+            ["agent", "create", "agent-kundea", "--expiration", "3m"],
+            ["agent", "renew", "agent-kundea", "--expiration", "1y", "--output", "json"],
         ])
     }
 
@@ -70,7 +70,7 @@ struct PassCLITests {
     @Test("a token session is refused where the account is needed")
     func session() throws {
         let runner = FakeRunner()
-        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: asylum-kundea\n")
+        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: agent-kundea\n")
         #expect(throws: LWError.self) { try PassCLI(runner: runner).session().requireAccount() }
 
         runner.on(["info"], stdout: "- Release track: stable\n- ID: u1\n- Username: loeti\n")
@@ -115,8 +115,8 @@ struct PassCLITests {
         #expect(try pass.session() == .account(username: "loeti"))
         #expect("\(try pass.session())".contains("loeti"))
 
-        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: asylum-kundea\n")
-        #expect(try pass.session() == .token(name: "asylum-kundea"))
+        runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: agent-kundea\n")
+        #expect(try pass.session() == .token(name: "agent-kundea"))
         // As pass-cli 2.7.0 prints it.
         runner.on(["info"], stdout: "- Release track: stable\n- Personal Access Token: [Agent] lw-host\n")
         #expect(try pass.session() == .token(name: "lw-host"))

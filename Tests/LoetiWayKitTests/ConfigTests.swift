@@ -8,14 +8,16 @@ struct ConfigTests {
     func defaults() throws {
         let config = try CustomerConfig.parse(Fixtures.kundeA)
         #expect(config.customer == "KundeA")
-        #expect(config.agentName == "asylum-kundea")
+        #expect(config.agentName == "agent-kundea")
         #expect(config.protonTokenItem == "KundeA Proton Agent")
-        #expect(config.githubTokenItem == "KundeA GitHub PAT")
+        #expect(config.vault == "agent-kundea")
         #expect(config.proton.expiration == .oneMonth)
         #expect(config.proton.vaults == [VaultGrant(name: "agent-kundea"), VaultGrant(name: "agent-kundea-infra", role: .editor)])
-        #expect(config.github?.expiresInDays == 90)
-        #expect(config.github?.permissions == ["contents": "write", "pull_requests": "write"])
-        #expect(config.github?.repositories == ["web", "api"])
+        let github = try #require(config.tokenTargets(directory: URL(fileURLWithPath: "/c")).first)
+        #expect(github.vault == "agent-kundea")
+        #expect(github.reference == "pass://agent-kundea/GitHub Token/note")
+        #expect(github.variable == "GH_TOKEN")
+        #expect(github.github == GitHubSettings(owner: "kundea-org", repositories: ["web", "api"], tokenName: "KundeA_PAT"))
     }
 
     @Test("overrides win over defaults")
@@ -30,7 +32,30 @@ struct ConfigTests {
         #expect(config.agentName == "custom-agent")
         #expect(config.protonTokenItem == "Müller Token")
         #expect(config.proton.expiration == .threeMonths)
-        #expect(config.github == nil)
+        #expect(config.tokens == nil)
+    }
+
+    @Test("the old github section and unknown providers are refused with a hint")
+    func legacyGitHub() {
+        #expect(throws: LWError.self) {
+            try CustomerConfig.parse("customer: A\nproton:\n  vaults: [{name: agent-a}]\ngithub:\n  owner: o\n")
+        }
+        #expect(throws: LWError.self) {
+            try CustomerConfig.parse("customer: A\nproton:\n  vaults: [{name: agent-a}]\ntokens:\n  gitlab: {}\n")
+        }
+        #expect(throws: LWError.self) {
+            try CustomerConfig.parse("customer: A\nproton:\n  vaults: [{name: agent-a}]\ntokens:\n  github: {owner: o, token_item: X}\n")
+        }
+    }
+
+    @Test("tokens need the customer's vault granted, variables must be unique")
+    func tokenVaultGranted() throws {
+        let noVault = Fixtures.kundeA.replacingOccurrences(of: "    - name: agent-kundea\n", with: "")
+        #expect(throws: LWError.self) { try CustomerConfig.parse(noVault).validate(tokenVault: "lw-tokens") }
+        let clash = Fixtures.kundeA + "\nenv:\n  GH_TOKEN: pass://agent-kundea/Other/password\n"
+        #expect(throws: LWError.self) { try CustomerConfig.parse(clash).validate(tokenVault: "lw-tokens") }
+        let renamed = Fixtures.kundeA + "\n    variable: GITHUB_TOKEN\nenv:\n  GH_TOKEN: pass://agent-kundea/Other/password\n"
+        try CustomerConfig.parse(renamed).validate(tokenVault: "lw-tokens")
     }
 
     @Test("unknown role and lifetime are rejected with a readable message")
@@ -90,14 +115,14 @@ struct ConfigTests {
         let config = CustomerConfig(
             customer: "A/B",
             proton: ProtonSettings(vaults: [VaultGrant(name: "X"), VaultGrant(name: "X")]),
-            github: GitHubSettings(owner: "", expiresInDays: 400, permissions: ["contents": "full"])
+            tokens: TokenSection(github: GitHubPartial(owner: "", expiresInDays: 400, permissions: ["contents": "full"]))
         )
         do {
             try config.validate(tokenVault: "lw-tokens")
             Issue.record("expected an error")
         } catch {
             let message = "\(error)"
-            for fragment in ["enthält '/'", "mehrfach", "agent-<name>", "github.owner", "expires_in_days", "contents"] {
+            for fragment in ["enthält '/'", "mehrfach", "agent-<name>", "tokens.github.owner", "expires_in_days", "contents"] {
                 #expect(message.contains(fragment), "missing: \(fragment)")
             }
         }

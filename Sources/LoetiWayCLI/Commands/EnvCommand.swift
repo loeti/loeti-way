@@ -5,11 +5,13 @@ import LoetiWayKit
 struct EnvCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "env",
-        abstract: "export-Zeilen für direnv: GitHub-PAT des Ordners und die Werte aus env:.",
+        abstract: "export-Zeilen für direnv: Tokens und env-Werte des Ordners.",
         discussion: """
-        Für die .envrc: eval "$(lw env)". Liest mit dem Host-Agent (lw host) aus dem Token-Vault,
-        die Werte aus env: mit dem Agent des Kunden. Im Projektordner mit .loeti-way-project.yaml
-        gilt dessen PAT, sonst der des Kunden; ein kaputtes Projekt bekommt keinen.
+        Für die .envrc: eval "$(lw env)". Liest mit dem Agent des Kunden aus dessen Vaults; dessen
+        Token holt der Host-Agent (lw host) aus dem Token-Vault. Im Projektordner mit
+        .loeti-way-project.yaml ersetzen dessen Tokens und env-Werte die des Kunden; ein kaputtes
+        oder nicht registriertes Projekt bekommt nichts. Gesetzt wird LW_ENV_<NAME>, Asylum macht
+        daraus <NAME>.
 
         Endet immer mit Status 0. Probleme stehen auf stderr, die betroffene Variable wird entfernt.
         Im Terminal zeigt lw env nur, was gesetzt würde; die Werte gibt es nur in eine Pipe aus.
@@ -27,7 +29,7 @@ struct EnvCommand: AsyncParsableCommand {
             context = try AppContext.make(options)
         } catch {
             Console.error("lw env: \(error)")
-            print("unset \(Scaffold.githubVariable)")
+            EnvExport.fallbackVariables.forEach { print("unset \($0)") }
             return
         }
         let folder = directory.map { URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath) } ?? context.cwd
@@ -36,7 +38,7 @@ struct EnvCommand: AsyncParsableCommand {
             registry = try CustomerRegistry.load(context.global.registryFile)
         } catch {
             Console.error("lw env: \(error)")
-            print("unset \(Scaffold.githubVariable)")
+            EnvExport.fallbackVariables.forEach { print("unset \($0)") }
             return
         }
         let result = EnvExport.build(directory: folder, global: context.global, registry: registry, sessions: context.sessions) {

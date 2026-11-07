@@ -5,9 +5,10 @@ import LoetiWayKit
 struct HostCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "host",
-        abstract: "Den Host-Agent prüfen, einrichten oder erneuern. Er liest die Tokens für lw env.",
+        abstract: "Den Host-Agent prüfen, einrichten oder erneuern. Er liest die Agent-Tokens für lw env.",
         discussion: """
         Der Host-Agent ist der einzige Agent mit Zugriff auf den Token-Vault, und nur als Viewer.
+        Dort liegen nur die Tokens der Proton-Agents; mit ihnen lesen die Agents der Kunden.
         Er bleibt auf dem Mac angemeldet, in einer eigenen Sitzung von lw. Sein Token liegt in
         ~/.config/loeti-way/host-token (nur für dich lesbar).
 

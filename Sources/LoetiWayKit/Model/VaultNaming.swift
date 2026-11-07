@@ -15,6 +15,11 @@ public enum VaultNaming {
         agentPrefix + Slug.make(customer)
     }
 
+    /// A project's own vault: `agent-<customer slug>-<folder slug>`.
+    public static func projectVault(customer: String, project: String) -> String {
+        agentVault(customer: customer) + "-" + Slug.make(project)
+    }
+
     public static func isAgentVault(_ name: String) -> Bool {
         hasPrefix(agentPrefix, name)
     }

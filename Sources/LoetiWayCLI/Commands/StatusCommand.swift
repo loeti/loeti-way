@@ -5,10 +5,11 @@ import LoetiWayKit
 struct StatusCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Zeigen, was Aufmerksamkeit braucht: Tokens, .envrc, Repos ohne passenden PAT.",
+        abstract: "Zeigen, was Aufmerksamkeit braucht: Tokens, env, .envrc, Repos ohne passenden Token.",
         discussion: """
-        Ohne Konto: Host-Agent, Notizen im Token-Vault, GitHub-PATs (Ablauf, welche Repos sie
-        abdecken), .envrc, jedes git-Repo bis 2 Ebenen unter einem Kunden und Repos ohne Kunde.
+        Ohne Konto: Host-Agent und Agent-Tokens im Token-Vault; mit dem Agent jedes Kunden seine
+        Tokens und env-Einträge, beim GitHub-Token Ablauf und welche Repos er abdeckt; .envrc,
+        jedes git-Repo bis 2 Ebenen unter einem Kunden und Repos ohne Kunde.
         Ablaufdaten der Proton-Agents stammen dann von der letzten Prüfung mit dem Konto.
 
         Mit --konto zusätzlich die Rechte aller Agents und frische Ablaufdaten.
@@ -56,6 +57,9 @@ struct StatusCommand: AsyncParsableCommand {
             host: host,
             defaultSession: try? context.sessions.defaultSession().session(),
             checker: offline ? nil : LiveGitHubChecker(),
+            agentLogin: { config in
+                try context.sessions.customerAgent(config, tokenVault: global.tokenVault, reason: "lw status") { try context.host() }
+            },
             now: Date()
         )
 

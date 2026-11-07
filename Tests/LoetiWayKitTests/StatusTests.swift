@@ -13,19 +13,20 @@ struct StatusTests {
     }
 
     /// root/customers/KundeA with
-    /// - web: repo with project PAT and .envrc
-    /// - api: repo without project, covered by the customer PAT
+    /// - web: repo, project with own vault and GitHub token, and .envrc
+    /// - api: repo without project, covered by the customer's token
     /// - legacy: repo without project, own outdated .envrc, not covered
     /// - notes: repo without origin
     /// and root/other/tool, a repo outside every customer.
     func makeTree() throws -> (root: URL, customer: URL, global: GlobalConfig) {
         let root = try Fixtures.temporaryDirectory()
         let customer = root.appendingPathComponent("customers/KundeA")
-        try Fixtures.write(Fixtures.kundeA, to: customer.appendingPathComponent(CustomerConfig.fileName))
+        try Fixtures.write(Fixtures.kundeAWithWeb + "\nenv:\n  MAVEN_PASSWORD: pass://agent-kundea/Maven/password\n",
+                           to: customer.appendingPathComponent(CustomerConfig.fileName))
         try Fixtures.write(Scaffold.envrc, to: customer.appendingPathComponent(".envrc"))
 
         try Self.repo(customer.appendingPathComponent("web"), origin: "git@github.com:kundea-org/web.git")
-        try Fixtures.write("{}\n", to: customer.appendingPathComponent("web/\(ProjectConfig.fileName)"))
+        try Fixtures.write("vault: own\ntokens:\n  github: {}\n", to: customer.appendingPathComponent("web/\(ProjectConfig.fileName)"))
         try Fixtures.write(Scaffold.envrc, to: customer.appendingPathComponent("web/.envrc"))
 
         try Self.repo(customer.appendingPathComponent("api"), origin: "https://github.com/kundea-org/api")
@@ -37,30 +38,33 @@ struct StatusTests {
         return (root, customer, GlobalConfig(root: root, environment: ["HOME": root.path]))
     }
 
-    func hostRunner() -> FakeRunner {
+    /// Host session: the token vault. Agent session: the customer's and the project's vault.
+    func runner() -> FakeRunner {
         let runner = FakeRunner()
-        runner.on(["item", "list"], stdout: """
-        {"items": [{"id": "1", "share_id": "t", "title": "KundeA Proton Agent"},
-                   {"id": "2", "share_id": "t", "title": "KundeA GitHub PAT"},
-                   {"id": "3", "share_id": "t", "title": "KundeA web GitHub PAT"}]}
+        runner.on(["item", "list", "--vault-name", "lw-tokens"], stdout: #"{"items": [{"id": "1", "share_id": "t", "title": "KundeA Proton Agent"}]}"#)
+        runner.on(["item", "list", "--vault-name", "agent-kundea"], stdout: """
+        {"items": [{"id": "2", "share_id": "a", "title": "GitHub Token"}, {"id": "3", "share_id": "a", "title": "Maven"}]}
         """)
-        runner.on(["item", "view", "pass://lw-tokens/KundeA GitHub PAT/note"], stdout: "github_pat_customer\n")
-        runner.on(["item", "view", "pass://lw-tokens/KundeA web GitHub PAT/note"], stdout: "github_pat_web\n")
+        runner.on(["item", "list", "--vault-name", "agent-kundea-web"], stdout: #"{"items": [{"id": "4", "share_id": "w", "title": "GitHub Token"}]}"#)
+        runner.on(["item", "view", "pass://agent-kundea/GitHub Token/note"], stdout: "github_pat_customer\n")
+        runner.on(["item", "view", "pass://agent-kundea-web/GitHub Token/note"], stdout: "github_pat_web\n")
         return runner
     }
 
     func collector(_ tree: (root: URL, customer: URL, global: GlobalConfig), runner: FakeRunner, registered: Bool = true,
-                   checker: (any GitHubTokenChecker)?, defaultSession: PassSession = .loggedOut) throws -> (StatusCollector, LoadedCustomer) {
+                   checker: (any GitHubTokenChecker)?, defaultSession: PassSession = .loggedOut,
+                   agentLogin: ((CustomerConfig) throws -> PassCLI)? = nil) throws -> (StatusCollector, LoadedCustomer) {
         let customer = try CustomerLocator.load(file: tree.customer.appendingPathComponent(CustomerConfig.fileName))
         var registry = CustomerRegistry()
         if registered { try registry.register(customer) }
         let collector = StatusCollector(
             global: tree.global,
             registry: registry,
-            expiries: AgentExpiries(expires: ["asylum-kundea": days(5), "lw-host": days(60)], checked: days(-1)),
+            expiries: AgentExpiries(expires: ["agent-kundea": days(5), "lw-host": days(60)], checked: days(-1)),
             host: .success(PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/host"))),
             defaultSession: defaultSession,
             checker: checker,
+            agentLogin: agentLogin ?? { _ in PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/agent")) },
             now: now
         )
         return (collector, customer)
@@ -77,15 +81,15 @@ struct StatusTests {
         section.lines.filter { $0.level == level }.map(\.text)
     }
 
-    @Test("without the account: tokens, .envrc and every repository, from the host agent and GitHub")
+    @Test("without the account: agent tokens, provider tokens, env, .envrc and every repository")
     func overview() async throws {
         let tree = try makeTree()
-        let runner = hostRunner()
+        let runner = runner()
         let (collector, customer) = try collector(tree, runner: runner, checker: checker)
         let report = await collector.collect([customer])
 
         #expect(!report.host.needsAttention)
-        #expect(report.host.lines.contains { $0.text.contains("3 Notizen") })
+        #expect(report.host.lines.contains { $0.text.contains("1 Notizen") })
         #expect(report.host.lines.contains { $0.text.hasPrefix("Token (lw-host): läuft ab am") && $0.text.contains("Stand") })
         #expect(report.host.lines.contains(.ok("Normale pass-cli-Anmeldung leer")))
 
@@ -94,108 +98,116 @@ struct StatusTests {
         let ok = texts(section, .ok)
         #expect(ok.contains(".envrc lädt lw env"))
         #expect(ok.contains { $0.hasPrefix("GitHub @loeti") })
+        #expect(ok.contains("env: MAVEN_PASSWORD"))
         #expect(ok.contains { $0.hasPrefix("web: GitHub @loeti") })
         #expect(ok.contains("web: .envrc lädt lw env"))
-        #expect(ok.contains("web: kundea-org/web, PAT deckt es ab"))
+        #expect(ok.contains("web: kundea-org/web, Token deckt es ab"))
 
         // The customer's agent expires within warn_days (recorded date).
-        #expect(todo.contains { $0.hasPrefix("Agent (asylum-kundea)") })
-        // Repos without a project PAT, an outdated own .envrc, a repo the PAT doesn't cover.
-        #expect(todo.contains { $0.hasPrefix("api: kein Projekt-PAT → lw init --project") })
-        #expect(!todo.contains { $0.contains("kundea-org/api nicht ab") })
-        #expect(todo.contains { $0.hasPrefix("legacy: kein Projekt-PAT") })
+        #expect(todo.contains { $0.hasPrefix("Agent (agent-kundea)") })
+        // api is covered by the customer's token: nothing to say.
+        #expect(!todo.contains { $0.hasPrefix("api:") })
         #expect(todo.contains { $0.hasPrefix("legacy: eigene .envrc lädt lw env nicht") })
-        #expect(todo.contains { $0.contains("deckt kundea-org/legacy nicht ab") })
+        #expect(todo.contains { $0.contains("'KundeA_PAT' (KundeA) deckt kundea-org/legacy nicht ab") })
         #expect(texts(section, .info).contains("notes: kein GitHub-origin"))
         #expect(!todo.contains { $0.hasPrefix("web:") })
 
-        // Reading only: lists and views, nothing changed, all in the host's session.
+        // Reading only: lists and views, nothing changed. Agent tokens with the host, the rest with the agent.
         #expect(runner.mutations.isEmpty)
-        #expect(runner.calls.allSatisfy { $0.sessionDirectory == "/s/host" && $0.environment["PROTON_PASS_AGENT_REASON"] != nil })
+        #expect(runner.calls.allSatisfy { $0.environment["PROTON_PASS_AGENT_REASON"] != nil })
+        #expect(runner.calls.filter { $0.sessionDirectory == "/s/host" }.allSatisfy { $0.arguments.contains("lw-tokens") })
 
         let orphans = try #require(StatusCollector.orphans(root: tree.root))
         #expect(orphans.lines.map(\.text) == ["other/tool (loeti/tool): unter einen Kundenordner verschieben oder lw init"])
         #expect(orphans.needsAttention)
     }
 
-    @Test("an unregistered config is flagged and none of its notes is read")
+    @Test("an unregistered config is flagged and nothing it names is read")
     func unregistered() async throws {
         let tree = try makeTree()
-        let runner = hostRunner()
-        let (collector, customer) = try collector(tree, runner: runner, registered: false, checker: checker)
+        let runner = runner()
+        var logins = 0
+        let (collector, customer) = try collector(tree, runner: runner, registered: false, checker: checker) { _ in
+            logins += 1
+            return PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/agent"))
+        }
         let report = await collector.collect([customer])
         let section = try #require(report.customers.first)
         #expect(texts(section, .attention).contains { $0.contains("nicht registriert") && $0.contains("lw apply KundeA") })
-        #expect(texts(section, .info).contains { $0.hasPrefix("GitHub-PATs und Repos nicht geprüft") })
+        #expect(texts(section, .info).contains { $0.hasPrefix("Tokens, env und Repos nicht geprüft") })
         #expect(!section.lines.contains { $0.text.contains("GitHub @") || $0.text.hasPrefix("web:") || $0.text.hasPrefix("api:") })
+        #expect(logins == 0)
         #expect(!runner.calls.contains { $0.arguments.starts(with: ["item", "view"]) })
     }
 
-    @Test("a project note another registered customer claims is flagged, not read")
-    func claimedNote() async throws {
+    @Test("an unregistered project is flagged and not read; the customer is")
+    func unregisteredProject() async throws {
         let tree = try makeTree()
-        let runner = hostRunner()
+        let runner = runner()
         var (collector, customer) = try collector(tree, runner: runner, checker: checker)
-        collector.registry.entries.append(CustomerRegistry.Entry(
-            directory: "/elsewhere/KundeAWeb", customer: "KundeA web", agent: "asylum-kundeaweb",
-            protonTokenItem: "KundeA web Proton Agent", githubTokenItem: "KundeA web GitHub PAT"))
+        collector.registry.entries[0].projects = [:]
         let report = await collector.collect([customer])
         let section = try #require(report.customers.first)
-        #expect(texts(section, .attention).contains { $0.hasPrefix("web: GitHub: Die Notiz 'KundeA web GitHub PAT' ist für KundeA web") })
-        #expect(!texts(section, .ok).contains { $0.hasPrefix("web: kundea-org/web") })
-        #expect(!runner.calls.contains { $0.arguments == ["item", "view", "pass://lw-tokens/KundeA web GitHub PAT/note"] })
+        #expect(texts(section, .attention).contains { $0.hasPrefix("web: ") && $0.contains("nicht registriert") })
         #expect(texts(section, .ok).contains { $0.hasPrefix("GitHub @loeti") })
+        #expect(!runner.calls.contains { $0.arguments.contains("pass://agent-kundea-web/GitHub Token/note") })
+        #expect(!section.lines.contains { $0.text.hasPrefix("web: kundea-org") })
     }
 
-    @Test("a missing PAT note and a logged-in account are flagged")
+    @Test("missing tokens and items are flagged with where they belong; a logged-in account too")
     func problems() async throws {
         let tree = try makeTree()
-        let runner = hostRunner()
-        runner.on(["item", "list"], stdout: #"{"items": [{"id": "1", "share_id": "t", "title": "KundeA GitHub PAT"}]}"#)
-        let (collector, customer) = try collector(tree, runner: runner, checker: nil,
-                                                  defaultSession: .account(username: "loeti"))
+        let runner = runner()
+        runner.on(["item", "list", "--vault-name", "agent-kundea-web"], stdout: #"{"items": []}"#)
+        runner.on(["item", "list", "--vault-name", "agent-kundea"], stdout: #"{"items": [{"id": "2", "share_id": "a", "title": "GitHub Token"}]}"#)
+        runner.on(["item", "list", "--vault-name", "lw-tokens"], stdout: #"{"items": []}"#)
+        let (collector, customer) = try collector(tree, runner: runner, checker: nil, defaultSession: .account(username: "loeti"))
         let report = await collector.collect([customer])
-        let todo = texts(try #require(report.customers.first), .attention)
-        #expect(todo.contains { $0.hasPrefix("web: GitHub: Token fehlt") && $0.hasSuffix("lw github KundeA --project web") })
+        let section = try #require(report.customers.first)
+        let todo = texts(section, .attention)
+        #expect(todo.contains("web: GitHub: Token fehlt in 'agent-kundea-web' / 'GitHub Token' → lw token github KundeA --project web"))
+        #expect(todo.contains("env MAVEN_PASSWORD: Eintrag 'Maven' fehlt in 'agent-kundea'"))
+        #expect(todo.contains { $0.hasPrefix("Token des Agents fehlt in 'lw-tokens'") })
         #expect(report.host.lines.contains { $0.level == .attention && $0.text.contains("pass-cli logout") })
         // Offline: stored, but not checked.
-        #expect(texts(try #require(report.customers.first), .ok).contains("GitHub: Token abgelegt (nicht geprüft)"))
+        #expect(texts(section, .ok).contains("GitHub: Token abgelegt (nicht geprüft)"))
     }
 
-    @Test("a repo without any PAT is one line, with the repo and the fix")
-    func noPAT() async throws {
+    @Test("a GitHub repo without any GitHub token is one line, with the repo and the fix")
+    func noToken() async throws {
         let tree = try makeTree()
-        let file = tree.customer.appendingPathComponent(CustomerConfig.fileName)
-        try Fixtures.write(Fixtures.kundeA.components(separatedBy: "\ngithub:")[0] + "\n", to: file)
+        try Fixtures.write("customer: KundeA\nproton:\n  vaults: [{name: agent-kundea}]\n", to: tree.customer.appendingPathComponent(CustomerConfig.fileName))
         try FileManager.default.removeItem(at: tree.customer.appendingPathComponent("web/\(ProjectConfig.fileName)"))
-        let (collector, customer) = try collector(tree, runner: hostRunner(), checker: checker)
+        let (collector, customer) = try collector(tree, runner: runner(), checker: checker)
         let report = await collector.collect([customer])
         let todo = texts(try #require(report.customers.first), .attention)
         let api = todo.filter { $0.hasPrefix("api:") }
         #expect(api.count == 1)
-        #expect(api.first?.hasPrefix("api: kundea-org/api ohne PAT → lw init --project /") == true)
-        #expect(api.first?.hasSuffix("/api") == true)
-        // Without an origin there is no repo name, so the project line stays.
-        #expect(todo.contains { $0.hasPrefix("notes: kein Projekt-PAT → lw init --project") })
+        #expect(api.first?.hasPrefix("api: kundea-org/api ohne GitHub-Token → 'tokens.github' in .loeti-way.yaml oder lw init --project /") == true)
     }
 
-    @Test("without a host agent nothing is read, and that is the first thing to fix")
+    @Test("without a host agent the customer's agent can't log in, and that is reported")
     func noHost() async throws {
         let tree = try makeTree()
-        var (collector, customer) = try collector(tree, runner: FakeRunner(), checker: checker)
+        var (collector, customer) = try collector(tree, runner: FakeRunner(), checker: checker) { _ in
+            throw LWError("Host-Agent: host-token fehlt → lw host")
+        }
         collector.host = .failure(LWError("host-token fehlt"))
         let report = await collector.collect([customer])
         #expect(report.host.lines.contains(.todo("host-token fehlt")))
-        #expect(texts(try #require(report.customers.first), .info).contains { $0.contains("nicht prüfbar") })
+        let section = try #require(report.customers.first)
+        #expect(texts(section, .attention).contains { $0.hasPrefix("Agent-Anmeldung: Host-Agent: host-token fehlt") })
+        #expect(texts(section, .info).contains("Tokens und env nicht prüfbar"))
     }
 
     @Test("with the account: grants of the customer's and the host agent")
     func withAccount() async throws {
         let tree = try makeTree()
-        let runner = hostRunner()
+        let runner = runner()
         runner.on(["pat", "access", "list-access", "--personal-access-token-id", "p1"], stdout: """
         [{"type": "vault", "share_id": "s1", "role": "Viewer", "vault_name": "agent-kundea"},
-         {"type": "vault", "share_id": "s2", "role": "Editor", "vault_name": "agent-kundea-infra"}]
+         {"type": "vault", "share_id": "s2", "role": "Editor", "vault_name": "agent-kundea-infra"},
+         {"type": "vault", "share_id": "s5", "role": "Viewer", "vault_name": "agent-kundea-web"}]
         """)
         runner.on(["pat", "access", "list-access", "--personal-access-token-id", "h1"], stdout: """
         [{"type": "vault", "share_id": "s3", "role": "Viewer", "vault_name": "lw-tokens"},
@@ -203,13 +215,13 @@ struct StatusTests {
         """)
         var (collector, customer) = try collector(tree, runner: runner, checker: nil)
         collector.account = PassCLI(runner: runner, sessionDirectory: URL(fileURLWithPath: "/s/account"))
-        collector.agents = [ProtonAgent(id: "p1", name: "asylum-kundea", expires: days(90)),
+        collector.agents = [ProtonAgent(id: "p1", name: "agent-kundea", expires: days(90)),
                             ProtonAgent(id: "h1", name: "lw-host", expires: days(90))]
         let report = await collector.collect([customer])
 
         let section = try #require(report.customers.first)
         #expect(texts(section, .ok).contains("Rechte wie konfiguriert"))
-        #expect(texts(section, .ok).contains { $0.hasPrefix("Agent asylum-kundea: läuft ab") && !$0.contains("Stand") })
+        #expect(texts(section, .ok).contains { $0.hasPrefix("Agent agent-kundea: läuft ab") && !$0.contains("Stand") })
         // The host agent may only read the token vault.
         #expect(report.host.lines.contains(.todo("Rechte weichen ab → lw host --setup")))
         #expect(report.host.lines.contains(.info("- Vault 'agent-kundea' (viewer) entziehen")))

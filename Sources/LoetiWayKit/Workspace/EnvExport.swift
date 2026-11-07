@@ -28,7 +28,7 @@ public enum EnvNaming {
 
     static let reserved: Set<String> = [
         "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "PWD", "IFS", "ENV", "BASH_ENV", "ZDOTDIR",
-        "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK", Scaffold.githubVariable,
+        "SSH_AUTH_SOCK",
     ]
     static let reservedPrefixes = ["DYLD_", "LD_", "PROTON_PASS_", "DIRENV_", "LW_", "GIT_", "ASYLUM_"]
 
@@ -43,9 +43,9 @@ public enum EnvNaming {
     }
 }
 
-/// What `lw env` prints for direnv: the GitHub PAT of the folder (project or customer) and the
-/// customer's `env` values. Problems never stop it; they become warnings, and the affected
-/// variable is unset, so a shell never keeps a stale or wider token.
+/// What `lw env` prints for direnv: the provider tokens and `env` values of the folder (project
+/// or customer), all read by the customer's agent. Problems never stop it; they become
+/// warnings, and the affected variable is unset, so a shell never keeps a stale or wider token.
 public struct EnvExport: Equatable, Sendable {
     public enum Value: Equatable, Sendable {
         case set(String)
@@ -62,6 +62,9 @@ public struct EnvExport: Equatable, Sendable {
             && lhs.variables.map(\.name) == rhs.variables.map(\.name)
             && lhs.variables.map(\.value) == rhs.variables.map(\.value)
     }
+
+    /// Unset when nothing is known about the folder: the providers' default variables.
+    public static let fallbackVariables = TokenKind.allCases.map { EnvNaming.hostVariable($0.defaultVariable) }
 
     /// Lines for `eval`, values in single quotes.
     public var shell: String {
@@ -87,13 +90,19 @@ public struct EnvExport: Equatable, Sendable {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// `hostToken` is only read when the host agent has to log in again. Only a customer config
-    /// registered in `registry` is used: the folder's YAML may have been written by an agent.
+    /// `hostToken` is only read when the host agent has to log in again, and the host agent only
+    /// when the customer's agent has to. Only a customer config registered in `registry` is
+    /// used, and a project config only if registered too: the YAML may have been written by an agent.
     public static func build(directory: URL, global: GlobalConfig, registry: CustomerRegistry, sessions: SessionStore, hostToken: () throws -> String) -> EnvExport {
         var result = EnvExport()
+        func unset(_ names: [String]) {
+            for name in names where !result.variables.contains(where: { $0.name == name }) {
+                result.variables.append((name, .unset))
+            }
+        }
         guard let file = CustomerLocator.nearest(from: directory) else {
             result.warnings.append("Kein Kunde: keine \(CustomerConfig.fileName) in \(directory.path) oder darüber")
-            result.variables.append((Scaffold.githubVariable, .unset))
+            unset(fallbackVariables)
             return result
         }
 
@@ -104,74 +113,72 @@ public struct EnvExport: Equatable, Sendable {
             try registry.verify(customer)
         } catch {
             result.warnings.append("\(file.path): \(error)")
-            result.variables.append((Scaffold.githubVariable, .unset))
+            unset(fallbackVariables)
             return result
         }
         let config = customer.config
+        let known = customer.variables.map(EnvNaming.hostVariable)
 
-        // Which PAT applies here, decided before anything is read.
-        var target: GitHubTarget?
-        var targetProblem: String?
+        // What applies here, decided before anything is read.
+        let exports: [Export]
         do {
-            let found = try customer.githubTarget(project: nil, cwd: directory)
-            try CustomerLocator.ensureUnclaimed(found, owner: customer, root: global.root, registry: registry)
-            target = found
-        } catch {
-            // A customer without any GitHub section is not a problem, just nothing to export.
-            if config.github != nil || customer.project(containing: directory) != nil || customer.projectFailure(containing: directory) != nil {
-                targetProblem = "\(error)"
+            let found = try customer.exports(for: directory)
+            if let project = found.project {
+                try registry.verify(customer, project: project)
             }
-        }
-
-        let host: PassCLI
-        do {
-            host = try sessions.agent(SessionStore.host, expected: global.hostAgent, token: hostToken)
+            exports = found.exports
         } catch {
-            result.warnings.append("Host-Agent: \(error)")
-            result.variables.append((Scaffold.githubVariable, .unset))
-            result.variables += config.envEntries.map { (EnvNaming.hostVariable($0.name), .unset) }
+            result.warnings.append("\(error)")
+            unset(known + fallbackVariables)
+            return result
+        }
+        guard !exports.isEmpty else {
+            unset(known)
             return result
         }
 
-        // GitHub PAT
-        if let target {
-            let reader = host.with(reason: "lw env: GitHub-PAT für \(target.label)")
-            do {
-                let token = try reader.readNote(vault: global.tokenVault, title: target.tokenItem)
-                result.variables.append((Scaffold.githubVariable, .set(token)))
-            } catch {
-                let command = target.project.map { "lw github \(config.customer) --project \($0)" } ?? "lw github \(config.customer)"
-                result.warnings.append("GitHub-PAT für \(target.label) nicht lesbar (\(error)) → \(command)")
-                result.variables.append((Scaffold.githubVariable, .unset))
-            }
-        } else {
-            if let targetProblem { result.warnings.append("GitHub-PAT: \(targetProblem)") }
-            result.variables.append((Scaffold.githubVariable, .unset))
-        }
-
-        // Values from the customer's vaults, read by the customer's agent.
-        let entries = config.envEntries
-        guard !entries.isEmpty else { return result }
-        let agentSession = SessionStore.agent(customer: config.customer)
         let agent: PassCLI
         do {
-            agent = try sessions.agent(agentSession, expected: config.agentName) {
-                try host.with(reason: "lw env: Agent-Token von \(config.customer) für env").readNote(vault: global.tokenVault, title: config.protonTokenItem)
+            agent = try sessions.customerAgent(config, tokenVault: global.tokenVault, reason: "lw env") {
+                try sessions.agent(SessionStore.host, expected: global.hostAgent, token: hostToken)
             }
         } catch {
-            result.warnings.append("Agent von \(config.customer): \(error) → lw apply \(config.customer) bzw. lw renew \(config.customer)")
-            result.variables += entries.map { (EnvNaming.hostVariable($0.name), .unset) }
+            result.warnings.append("Agent von \(config.customer): \(error)")
+            unset(exports.map(\.hostVariable) + known)
             return result
         }
-        for entry in entries {
+        for export in exports {
+            let label = export.project.map { "\(config.customer) / \($0)" } ?? config.customer
             do {
-                let value = try agent.with(reason: "lw env: \(entry.name) für Asylum (\(config.customer))").read(entry.reference)
-                result.variables.append((EnvNaming.hostVariable(entry.name), .set(value)))
+                let value = try agent.with(reason: "lw env: \(export.variable) für Asylum (\(label))").read(export.reference)
+                result.variables.append((export.hostVariable, .set(value)))
             } catch {
-                result.warnings.append("\(entry.name): \(entry.reference) nicht lesbar (\(error))")
-                result.variables.append((EnvNaming.hostVariable(entry.name), .unset))
+                let hint = export.token.map { " → \($0.command) oder von Hand als Notiz '\($0.itemTitle)' in '\($0.vault)' ablegen" } ?? ""
+                result.warnings.append("\(export.variable): \(export.reference) nicht lesbar (\(error))\(hint)")
+                result.variables.append((export.hostVariable, .unset))
             }
         }
+        unset(known)
         return result
+    }
+}
+
+extension SessionStore {
+    private struct HostFailure: Error { let underlying: Error }
+
+    /// The customer's agent, logged in with its token from the token vault if needed. `host`
+    /// is only called for that login.
+    public func customerAgent(_ config: CustomerConfig, tokenVault: String, reason: String, host: () throws -> PassCLI) throws -> PassCLI {
+        do {
+            return try agent(Self.agent(customer: config.customer), expected: config.agentName) {
+                let reader: PassCLI
+                do { reader = try host() } catch { throw HostFailure(underlying: error) }
+                return try reader.with(reason: "\(reason): Agent-Token von \(config.customer)").readNote(vault: tokenVault, title: config.protonTokenItem)
+            }
+        } catch let failure as HostFailure {
+            throw LWError("Host-Agent: \(failure.underlying) → lw host")
+        } catch {
+            throw LWError("\(error) → lw apply \(config.customer) bzw. lw renew \(config.customer)")
+        }
     }
 }

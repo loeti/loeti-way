@@ -8,8 +8,9 @@ struct InitCommand: AsyncParsableCommand {
         abstract: "Einen Kunden- oder Projektordner einrichten: Konfiguration und .envrc anlegen.",
         discussion: """
         Bestehende Dateien bleiben unverändert. Ändert nichts in Proton Pass.
-        Mit --project bekommt ein Projektordner unter einem Kunden einen eigenen GitHub-PAT
-        (.loeti-way-project.yaml). Ist der Ordner ein git-Repo, kommen die Dateien in .git/info/exclude.
+        Mit --project bekommt ein Projektordner unter einem Kunden einen eigenen Vault und, wenn ein
+        GitHub-Owner bekannt ist, einen eigenen GitHub-Token (.loeti-way-project.yaml). Ist der
+        Ordner ein git-Repo, kommen die Dateien in .git/info/exclude.
         """
     )
 
@@ -18,13 +19,13 @@ struct InitCommand: AsyncParsableCommand {
     @Argument(help: "Kunden- bzw. Projektordner (Standard: aktuelles Verzeichnis).")
     var directory: String?
 
-    @Flag(help: "Einen Projektordner mit eigenem GitHub-PAT einrichten statt eines Kundenordners.")
+    @Flag(help: "Einen Projektordner mit eigenem Vault einrichten statt eines Kundenordners.")
     var project = false
 
     @Option(help: "Kundenname (Standard: Name des Ordners). Nicht mit --project: Projekte heissen wie ihr Ordner.")
     var customer: String?
 
-    @Option(name: .customLong("github-owner"), help: "GitHub-Organisation oder -Benutzer. Kunde: ohne Angabe bleibt der github-Abschnitt auskommentiert. Projekt: Standard ist der Owner des Kunden.")
+    @Option(name: .customLong("github-owner"), help: "GitHub-Organisation oder -Benutzer. Ohne Angabe (und beim Projekt ohne GitHub-Token des Kunden) bleibt tokens.github auskommentiert.")
     var githubOwner: String?
 
     @Flag(name: .customLong("no-envrc"), help: "Keine .envrc anlegen.")
@@ -70,14 +71,15 @@ struct InitCommand: AsyncParsableCommand {
         print("""
 
         Nächste Schritte:
-          1. Vaults, Rollen und env: in \(CustomerConfig.fileName) prüfen
-          2. lw apply \(name)      Agent anlegen und Vaults freigeben
-          3. lw github \(name)     GitHub-PAT anlegen und ablegen
-          4. direnv allow \(folder.path)
+          1. Vaults, Rollen, tokens und env in \(CustomerConfig.fileName) prüfen
+          2. Vault \(loaded.config.vault) anlegen, falls es ihn nicht gibt: pass-cli vault create --name \(loaded.config.vault)
+          3. lw apply \(name)              Agent anlegen, Vaults freigeben, registrieren
+          4. lw token github \(name)       GitHub-Token anlegen und ablegen (oder von Hand: Notiz '\(TokenKind.github.itemTitle)' in \(loaded.config.vault))
+          5. direnv allow \(folder.path)
 
-        Einmalig für alle Kunden: lw host --setup (Host-Agent, liest die Tokens für lw env), und
+        Einmalig für alle Kunden: lw host --setup (Host-Agent, liest die Agent-Tokens für lw env), und
 
-        \(Scaffold.asylumConfigSnippet(env: loaded.config.envEntries.map(\.name)))
+        \(Scaffold.asylumConfigSnippet(variables: loaded.variables))
         """)
     }
 
@@ -91,12 +93,7 @@ struct InitCommand: AsyncParsableCommand {
             throw LWError("--customer gibt es mit --project nicht: Der Projektname ist immer der Ordnername.")
         }
         let name = folder.lastPathComponent
-        if let problem = ProjectConfig.nameProblem(name) {
-            throw LWError(problem)
-        }
-        if loaded.config.github == nil && githubOwner == nil {
-            throw LWError("\(loaded.config.customer) hat keinen github-Abschnitt, also --github-owner angeben.")
-        }
+        let vault = VaultNaming.projectVault(customer: loaded.config.customer, project: name)
 
         let configFile = folder.appendingPathComponent(ProjectConfig.fileName)
         if fileManager.fileExists(atPath: configFile.path) {
@@ -107,14 +104,11 @@ struct InitCommand: AsyncParsableCommand {
             print("+ \(configFile.path)")
             loaded = try CustomerLocator.load(file: customerFile)
         }
-        if let failure = loaded.projectFailures.first(where: { $0.file.standardizedFileURL == configFile.standardizedFileURL }) {
-            throw LWError(failure.message)
-        }
-        guard let project = loaded.project(containing: folder), project.directory.standardizedFileURL == folder.standardizedFileURL else {
+        let failure = loaded.projectFailures.first { $0.file.standardizedFileURL == configFile.standardizedFileURL }
+        let found = loaded.project(containing: folder).map { $0.directory.standardizedFileURL == folder.standardizedFileURL } ?? false
+        if failure == nil && !found {
             throw LWError("\(configFile.path) liegt zu tief unter \(loaded.directory.path) (höchstens 2 Ebenen)")
         }
-
-        try CustomerLocator.ensureUnclaimed(project.github, owner: loaded, root: context.global.root, registry: CustomerRegistry.load(context.global.registryFile))
 
         if !noEnvrc {
             let envrcFile = folder.appendingPathComponent(".envrc")
@@ -135,9 +129,16 @@ struct InitCommand: AsyncParsableCommand {
         print("""
 
         Nächste Schritte:
-          1. github-Abschnitt in \(ProjectConfig.fileName) prüfen
-          2. lw github \(loaded.config.customer) --project \(project.name)   PAT anlegen und ablegen
-          3. direnv allow \(folder.path)
+          1. tokens und env in \(ProjectConfig.fileName) prüfen
+          2. In \(loaded.file.path) unter proton.vaults eintragen: - name: \(vault)
+          3. Vault anlegen, falls es ihn nicht gibt: pass-cli vault create --name \(vault)
+          4. lw apply \(loaded.config.customer)                          freigeben und Projekt registrieren
+          5. lw token github \(loaded.config.customer) --project \(name)   GitHub-Token anlegen und ablegen
+          6. direnv allow \(folder.path)
         """)
+        if let failure {
+            // Expected until the vault is granted; anything else is worth knowing now.
+            print("\nNoch offen:\n\(failure.message)")
+        }
     }
 }

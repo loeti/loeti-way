@@ -102,8 +102,12 @@ enum Fixtures {
         - name: agent-kundea
         - name: agent-kundea-infra
           role: editor
-    github:
-      owner: kundea-org
-      repositories: [web, api]
+    tokens:
+      github:
+        owner: kundea-org
+        repositories: [web, api]
     """
+
+    /// KundeA with project web's own vault granted.
+    static let kundeAWithWeb = kundeA.replacingOccurrences(of: "      role: editor\n", with: "      role: editor\n    - name: agent-kundea-web\n")
 }

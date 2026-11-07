@@ -3,9 +3,10 @@ import Foundation
 /// The pass-cli logins lw keeps, each in its own `PROTON_PASS_SESSION_DIR` below `base`.
 /// pass-cli's default session, which every process of the macOS user would find, stays empty.
 ///
-/// - `host`: the host agent (viewer on the token vault only). Stays logged in, `lw env` uses it.
+/// - `host`: the host agent (viewer on the token vault only). Stays logged in; it reads the
+///   customers' agent tokens so their agents can log in.
 /// - `account`: the user's account, only while a command that needs it runs.
-/// - `agent-<customer>`: a customer's agent, for the `env` values of `lw env`. Stays logged in.
+/// - `agent-<customer>`: a customer's agent, reads its tokens and `env` values. Stays logged in.
 public struct SessionStore {
     public static let host = "host"
     public static let account = "account"

@@ -1,6 +1,7 @@
 import Foundation
 
-/// Keeps one secure note per token in the token vault. No agent may have access to that vault.
+/// Keeps one secure note per token in a vault: agent tokens in the token vault (no customer agent
+/// may read it), provider tokens in the customer's or project's `agent-` vault.
 public struct TokenStore {
     public let pass: PassCLI
     public let vault: String

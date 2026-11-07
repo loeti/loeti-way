@@ -6,15 +6,17 @@ import LoetiWayKit
 struct LW: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "lw",
-        abstract: "Proton-Pass-Agents, Vault-Rechte und GitHub-PATs pro Kunde verwalten.",
+        abstract: "Proton-Pass-Agents, Vault-Rechte und Tokens pro Kunde verwalten.",
         discussion: """
         Jeder Kundenordner hat eine .loeti-way.yaml. lw legt danach einen Proton-Pass-Agent an,
-        gibt ihm genau die konfigurierten Vaults frei und legt seinen Token und den GitHub-PAT als
-        Notizen im Token-Vault ab. Diesen Vault liest nur der Host-Agent (lw host): Beim Betreten
-        eines Ordners setzt `lw env` (aus der .envrc) die Variablen, Asylum reicht sie weiter.
+        gibt ihm genau die konfigurierten Vaults frei und legt seinen Token im Token-Vault ab.
+        Diesen Vault liest nur der Host-Agent (lw host). Tokens wie der GitHub-Token liegen im
+        Vault des Kunden (agent-<kunde>) oder eines Projekts (agent-<kunde>-<projekt>), mit
+        festem Titel pro Anbieter. Beim Betreten eines Ordners setzt `lw env` (aus der .envrc)
+        die Variablen, Asylum reicht sie weiter.
 
-        Dein Konto meldet lw nur an, solange ein Befehl es braucht (apply, renew, github, audit,
-        status), in einer eigenen Sitzung, die danach gelöscht wird.
+        Dein Konto meldet lw nur an, solange ein Befehl es braucht (apply, renew, token, audit,
+        status --konto), in einer eigenen Sitzung, die danach gelöscht wird.
 
         Globale Einstellungen: ~/.config/loeti-way/config.yaml (root, token_vault, host_agent, warn_days).
         """,
@@ -26,7 +28,7 @@ struct LW: AsyncParsableCommand {
             InitCommand.self,
             ApplyCommand.self,
             RenewCommand.self,
-            GitHubCommand.self,
+            TokenCommand.self,
             AuditCommand.self,
         ],
         defaultSubcommand: StatusCommand.self
@@ -46,8 +48,9 @@ struct AppContext {
     let global: GlobalConfig
     let sessions: SessionStore
 
-    func store(_ pass: PassCLI) -> TokenStore {
-        TokenStore(pass: pass, vault: global.tokenVault)
+    /// The token vault, or `vault`.
+    func store(_ pass: PassCLI, vault: String? = nil) -> TokenStore {
+        TokenStore(pass: pass, vault: vault ?? global.tokenVault)
     }
 
     /// Logs the account in (browser), runs `body`, logs out and deletes the session.
@@ -115,7 +118,7 @@ struct AppContext {
         do {
             try store.save(title: title, token: token)
         } catch {
-            Console.error("Speichern in '\(global.tokenVault)' fehlgeschlagen: \(error)")
+            Console.error("Speichern in '\(store.vault)' fehlgeschlagen: \(error)")
             Console.error("Der neue Token wird nur jetzt angezeigt. Lege ihn von Hand als Notiz '\(title)' ab:")
             Console.error(token)
             throw ExitCode.failure

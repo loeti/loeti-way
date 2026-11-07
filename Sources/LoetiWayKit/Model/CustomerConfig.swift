@@ -48,7 +48,7 @@ public struct VaultGrant: Equatable, Sendable, Codable {
 }
 
 public struct ProtonSettings: Equatable, Sendable, Codable {
-    /// Agent name in Proton Pass. Default: `asylum-<customer slug>`.
+    /// Agent name in Proton Pass. Default: `agent-<customer slug>`, like the customer's vault.
     public var agent: String?
     public var expiration: TokenLifetime
     /// Title of the note in the token vault. Default: `<customer> Proton Agent`.
@@ -76,97 +76,57 @@ public struct ProtonSettings: Equatable, Sendable, Codable {
     }
 }
 
-public struct GitHubSettings: Equatable, Sendable, Codable {
-    /// Resource owner of the fine-grained PAT: an organisation or a user.
-    public var owner: String
-    public var expiresInDays: Int
-    /// GitHub permission name → `read` | `write` | `admin`, e.g. `contents: write`.
-    public var permissions: [String: String]
-    /// Only shown as a reminder: GitHub's form can't preselect repositories.
-    public var repositories: [String]
-    /// Title of the note in the token vault. Default: `<customer> GitHub PAT`.
-    public var tokenItem: String?
-    /// Name of the token on GitHub. Default: `<customer> Asylum`.
-    public var tokenName: String?
-
-    public static let defaultPermissions = ["contents": "write", "pull_requests": "write"]
-
-    public init(owner: String, expiresInDays: Int = 90, permissions: [String: String] = [:], repositories: [String] = [], tokenItem: String? = nil, tokenName: String? = nil) {
-        self.owner = owner
-        self.expiresInDays = expiresInDays
-        self.permissions = permissions
-        self.repositories = repositories
-        self.tokenItem = tokenItem
-        self.tokenName = tokenName
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case owner, permissions, repositories
-        case expiresInDays = "expires_in_days"
-        case tokenItem = "token_item"
-        case tokenName = "token_name"
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        owner = try container.decode(String.self, forKey: .owner)
-        expiresInDays = try container.decodeIfPresent(Int.self, forKey: .expiresInDays) ?? 90
-        permissions = try container.decodeIfPresent([String: String].self, forKey: .permissions)
-            ?? Self.defaultPermissions
-        repositories = try container.decodeIfPresent([String].self, forKey: .repositories) ?? []
-        tokenItem = try container.decodeIfPresent(String.self, forKey: .tokenItem)
-        tokenName = try container.decodeIfPresent(String.self, forKey: .tokenName)
-    }
-
-    /// Problems with the values; `section` is the YAML path for messages, e.g. `github`.
-    func problems(section: String) -> [String] {
-        var problems: [String] = []
-        if owner.trimmingCharacters(in: .whitespaces).isEmpty {
-            problems.append("'\(section).owner' ist leer")
-        }
-        if !(1...366).contains(expiresInDays) {
-            problems.append("'\(section).expires_in_days' muss zwischen 1 und 366 liegen")
-        }
-        for (name, level) in permissions.sorted(by: { $0.key < $1.key }) where !["read", "write", "admin"].contains(level) {
-            problems.append("'\(section).permissions.\(name)': '\(level)' ist nicht read, write oder admin")
-        }
-        return problems
-    }
-}
-
 /// Contents of `.loeti-way.yaml` in a customer folder.
-public struct CustomerConfig: Equatable, Sendable, Codable {
+public struct CustomerConfig: Equatable, Sendable, Decodable {
     public static let fileName = ".loeti-way.yaml"
 
     public var customer: String
     public var proton: ProtonSettings
-    public var github: GitHubSettings?
+    /// Provider tokens, stored in `agent-<customer>` under the provider's title.
+    public var tokens: TokenSection?
     /// Variable name → `pass://<vault>/<item>/<field>` in one of `proton.vaults`. `lw env` reads
     /// them with the customer's agent and exports the values.
     public var env: [String: String]?
 
-    public init(customer: String, proton: ProtonSettings, github: GitHubSettings? = nil, env: [String: String]? = nil) {
+    public init(customer: String, proton: ProtonSettings, tokens: TokenSection? = nil, env: [String: String]? = nil) {
         self.customer = customer
         self.proton = proton
-        self.github = github
+        self.tokens = tokens
         self.env = env
     }
 
-    /// `env` sorted by name.
-    public var envEntries: [(name: String, reference: String)] {
-        (env ?? [:]).sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    enum CodingKeys: String, CodingKey {
+        case customer, proton, tokens, env, github
     }
 
-    public var agentName: String { proton.agent ?? "asylum-\(Slug.make(customer))" }
-    public var protonTokenItem: String { proton.tokenItem ?? "\(customer) Proton Agent" }
-    public var githubTokenItem: String { github?.tokenItem ?? "\(customer) GitHub PAT" }
-    public var githubTokenName: String { github?.tokenName ?? "\(customer)_PAT" }
-
-    /// The customer-wide GitHub PAT, nil without a `github` section.
-    public func githubTarget(directory: URL) -> GitHubTarget? {
-        github.map {
-            GitHubTarget(customer: customer, project: nil, settings: $0, tokenItem: githubTokenItem, tokenName: githubTokenName, directory: directory)
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.github) {
+            throw LWError("'github' heisst jetzt 'tokens.github'. Der Token liegt dann im Vault '\(VaultNaming.agentPrefix)<kunde>' als '\(TokenKind.github.itemTitle)', nicht mehr im Token-Vault")
         }
+        customer = try container.decode(String.self, forKey: .customer)
+        proton = try container.decode(ProtonSettings.self, forKey: .proton)
+        tokens = try container.decodeIfPresent(TokenSection.self, forKey: .tokens)
+        env = try container.decodeIfPresent([String: String].self, forKey: .env)
+    }
+
+    public var agentName: String { proton.agent ?? VaultNaming.agentVault(customer: customer) }
+    public var protonTokenItem: String { proton.tokenItem ?? "\(customer) Proton Agent" }
+    /// Where the customer-wide provider tokens lie: `agent-<customer slug>`.
+    public var vault: String { VaultNaming.agentVault(customer: customer) }
+    public var grantedVaults: Set<String> { Set(proton.vaults.map(\.name)) }
+
+    func resolvedTokens(directory: URL) -> (targets: [TokenTarget], problems: [String]) {
+        tokens?.resolve(customer: customer, project: nil, vault: vault, directory: directory, parent: nil) ?? ([], [])
+    }
+
+    public func tokenTargets(directory: URL) -> [TokenTarget] {
+        resolvedTokens(directory: directory).targets
+    }
+
+    /// What the customer exports everywhere below its folder, unless a project replaces it.
+    public func exports(directory: URL) -> [Export] {
+        Export.make(tokens: tokenTargets(directory: directory), env: env, project: nil)
     }
 
     public static func parse(_ yaml: String) throws -> CustomerConfig {
@@ -185,14 +145,14 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
         }
     }
 
-    /// Checks what YAML decoding can't. `tokenVault` holds the tokens of all customers, so an
+    /// Checks what YAML decoding can't. `tokenVault` holds the tokens of all agents, so an
     /// agent must never get access to it; only `agent-` vaults may be granted (`VaultNaming`).
     public func validate(tokenVault: String) throws {
         var problems: [String] = []
         if customer.trimmingCharacters(in: .whitespaces).isEmpty {
             problems.append("'customer' ist leer")
         }
-        for name in [customer, protonTokenItem, githubTokenItem] where name.contains("/") {
+        for name in [customer, protonTokenItem] where name.contains("/") {
             problems.append("'\(name)' enthält '/', das geht nicht in pass://-Referenzen")
         }
         if proton.vaults.isEmpty {
@@ -204,28 +164,18 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
         }
         for grant in proton.vaults {
             if grant.name == tokenVault {
-                problems.append("Der Token-Vault '\(tokenVault)' darf nicht in 'proton.vaults' stehen: der Agent könnte sonst die Tokens aller Kunden lesen")
+                problems.append("Der Token-Vault '\(tokenVault)' darf nicht in 'proton.vaults' stehen: der Agent könnte sonst die Tokens aller Agents lesen")
             } else if let problem = VaultNaming.problem(agentVault: grant.name) {
                 problems.append(problem)
             }
         }
-        if let github {
-            problems += github.problems(section: "github")
+        let directory = URL(fileURLWithPath: "/")
+        let resolved = resolvedTokens(directory: directory)
+        problems += resolved.problems
+        if !resolved.targets.isEmpty && !grantedVaults.contains(vault) {
+            problems.append("Die Tokens liegen in '\(vault)': diesen Vault in 'proton.vaults' freigeben")
         }
-        let granted = Set(proton.vaults.map(\.name))
-        for (name, reference) in envEntries {
-            if let problem = EnvNaming.problem(variable: name) {
-                problems.append("'env.\(name)': \(problem)")
-            }
-            switch PassReference(reference) {
-            case nil:
-                problems.append("'env.\(name)': '\(reference)' ist keine Referenz der Form pass://<vault>/<eintrag>/<feld>")
-            case let parsed? where parsed.vault == tokenVault || !granted.contains(parsed.vault):
-                problems.append("'env.\(name)': Vault '\(parsed.vault)' steht nicht in 'proton.vaults'; der Agent könnte ihn nicht lesen")
-            default:
-                break
-            }
-        }
+        problems += Export.problems(Export.make(tokens: resolved.targets, env: env, project: nil), granted: grantedVaults)
         if !problems.isEmpty {
             throw LWError(problems.joined(separator: "\n"))
         }
@@ -249,14 +199,11 @@ public struct LoadedCustomer: Sendable, Equatable {
 
     public var directory: URL { file.deletingLastPathComponent() }
 
-    /// Every GitHub PAT of this customer: the customer-wide one first, then the projects'.
-    public var githubTargets: [GitHubTarget] {
-        (config.githubTarget(directory: directory).map { [$0] } ?? []) + projects.map(\.github)
-    }
+    public var tokenTargets: [TokenTarget] { config.tokenTargets(directory: directory) }
 
-    /// Titles of every note this customer reads or writes in the token vault.
-    public var tokenItems: Set<String> {
-        Set([config.protonTokenItem] + githubTargets.map(\.tokenItem))
+    /// Every variable `lw env` can set anywhere below this customer, sorted.
+    public var variables: [String] {
+        Set(config.exports(directory: directory).map(\.variable) + projects.flatMap { $0.exports.map(\.variable) }).sorted()
     }
 
     /// The project whose folder is `url` or contains it.
@@ -268,23 +215,45 @@ public struct LoadedCustomer: Sendable, Equatable {
         }
     }
 
-    /// The PAT `lw github` works on: the named project, else the project around `cwd`, else the
-    /// customer-wide one. Pass `cwd` only when the customer was found from the working directory.
-    public func githubTarget(project name: String?, cwd: URL?) throws -> GitHubTarget {
+    /// What `lw env` exports in `url`: the customer's values, replaced and extended by those of
+    /// the project around it. Inside a broken project it throws: never fall back to the customer.
+    public func exports(for url: URL) throws -> (project: LoadedProject?, exports: [Export]) {
+        if let failure = projectFailure(containing: url) {
+            throw LWError(failure.message)
+        }
+        var result = config.exports(directory: directory)
+        let project = project(containing: url)
+        if let project {
+            let own = project.exports
+            let kinds = Set(project.tokens.map(\.kind))
+            let variables = Set(own.map(\.variable))
+            result.removeAll { variables.contains($0.variable) || $0.token.map { kinds.contains($0.kind) } == true }
+            result += own
+        }
+        return (project, result)
+    }
+
+    /// The token `lw token <kind>` works on: the named project's own, else the one that applies
+    /// around `cwd` (project or customer), else the customer's. Pass `cwd` only when the
+    /// customer was found from the working directory.
+    public func tokenTarget(_ kind: TokenKind, project name: String?, cwd: URL?) throws -> TokenTarget {
         if let name {
-            return try project(named: name).github
+            let project = try project(named: name)
+            guard let target = project.tokens.first(where: { $0.kind == kind }) else {
+                throw LWError("Projekt \(project.name) hat keinen eigenen \(kind.label)-Token ('tokens.\(kind.rawValue)' und 'vault: own' in \(project.file.path))")
+            }
+            return target
         }
         if let cwd {
-            if let project = project(containing: cwd) { return project.github }
-            if let failure = projectFailure(containing: cwd) {
-                // Never fall back to the customer's wider token inside a broken project.
-                throw LWError(failure.message)
+            if let target = try exports(for: cwd).exports.compactMap(\.token).first(where: { $0.kind == kind }) {
+                return target
             }
+        } else if let target = tokenTargets.first(where: { $0.kind == kind }) {
+            return target
         }
-        if let target = config.githubTarget(directory: directory) { return target }
-        let known = projects.map(\.name).joined(separator: ", ")
-        throw LWError("\(config.customer) hat keinen github-Abschnitt in \(CustomerConfig.fileName)"
-            + (known.isEmpty ? "" : ". Projekt-PATs: \(known) (--project <name>)"))
+        let known = projects.filter { $0.tokens.contains { $0.kind == kind } }.map(\.name).joined(separator: ", ")
+        throw LWError("\(config.customer) hat keinen \(kind.label)-Token ('tokens.\(kind.rawValue)' in \(CustomerConfig.fileName))"
+            + (known.isEmpty ? "" : ". Projekte mit eigenem Token: \(known) (--project <name>)"))
     }
 
     /// The broken project config whose folder is `url` or contains it.
