@@ -12,6 +12,7 @@ struct EnvCommand: AsyncParsableCommand {
         gilt dessen PAT, sonst der des Kunden; ein kaputtes Projekt bekommt keinen.
 
         Endet immer mit Status 0. Probleme stehen auf stderr, die betroffene Variable wird entfernt.
+        Im Terminal zeigt lw env nur, was gesetzt würde; die Werte gibt es nur in eine Pipe aus.
         """
     )
 
@@ -44,6 +45,12 @@ struct EnvCommand: AsyncParsableCommand {
         for warning in result.warnings {
             Console.error("lw env: \(warning)")
         }
-        print(result.shell, terminator: "")
+        // Values only go into a pipe (eval "$(lw env)"), never onto a screen or into a chat.
+        if isatty(STDOUT_FILENO) != 0 {
+            print(result.summary, terminator: "")
+            Console.error("lw env: Werte ausgeblendet. Für die .envrc: eval \"$(lw env)\"")
+        } else {
+            print(result.shell, terminator: "")
+        }
     }
 }

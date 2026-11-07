@@ -73,6 +73,16 @@ public struct EnvExport: Equatable, Sendable {
         }.joined(separator: "\n") + (variables.isEmpty ? "" : "\n")
     }
 
+    /// For a terminal: which variables would be set, without the values.
+    public var summary: String {
+        variables.map { variable in
+            switch variable.value {
+            case let .set(value): "export \(variable.name)=…  (gesetzt, \(value.count) Zeichen)"
+            case .unset: "unset \(variable.name)"
+            }
+        }.joined(separator: "\n") + (variables.isEmpty ? "" : "\n")
+    }
+
     static func singleQuoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }

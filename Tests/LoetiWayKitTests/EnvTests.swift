@@ -62,6 +62,8 @@ struct EnvTests {
         #expect(value(export, "ASYLUM_GH_TOKEN") == .set("github_pat_web"))
         #expect(value(export, "LW_ENV_MAVEN_PASSWORD") == .set("s3cr'et"))
         #expect(export.shell.contains("export LW_ENV_MAVEN_PASSWORD='s3cr'\\''et'"))
+        #expect(!export.summary.contains("s3cr") && !export.summary.contains("github_pat"))
+        #expect(export.summary.contains("export ASYLUM_GH_TOKEN=…"))
 
         let views = runner.calls.filter { $0.arguments.starts(with: ["item", "view"]) }
         let host = sessions.directory(SessionStore.host).path

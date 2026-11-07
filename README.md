@@ -145,7 +145,7 @@ Umgebungsvariablen: `LW_ROOT`, `LW_TOKEN_VAULT`, `LW_PASS_CLI` (Pfad zu `pass-cl
 
 | Kommando | Konto | Wirkung |
 |---|---|---|
-| `env [ordner]` | nein | `export`-Zeilen für die `.envrc`. Probleme auf stderr, betroffene Variablen werden entfernt, Status immer 0 |
+| `env [ordner]` | nein | `export`-Zeilen für die `.envrc`. Probleme auf stderr, betroffene Variablen werden entfernt, Status immer 0. Im Terminal ohne Werte |
 | `host` | nein | `host-token` und Anmeldung des Host-Agents prüfen |
 | `host --setup [-y]` | ja | Host-Agent anlegen, falls er fehlt; nur `lw-tokens` als Viewer freigeben, andere Freigaben entziehen |
 | `host --renew [--expiration 3m]` | ja | Token des Host-Agents erneuern und in `host-token` schreiben |
