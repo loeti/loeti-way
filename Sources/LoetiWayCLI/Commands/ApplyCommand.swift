@@ -1,0 +1,71 @@
+import ArgumentParser
+import Foundation
+import LoetiWayKit
+
+struct ApplyCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "apply",
+        abstract: "Agent anlegen, falls er fehlt, und seine Vault-Rechte mit der Konfiguration abgleichen.",
+        discussion: "Zeigt zuerst, was sich ändert, und fragt dann nach. Vaults, die nicht in der Konfiguration stehen, werden entzogen."
+    )
+
+    @OptionGroup var options: CommonOptions
+
+    @Argument(help: "Kunde (Name oder Ordner). Ohne Angabe: .loeti-way.yaml im aktuellen Verzeichnis oder darüber.")
+    var customer: String?
+
+    @Flag(name: .customLong("dry-run"), help: "Nur anzeigen, nichts ändern.")
+    var dryRun = false
+
+    @Flag(name: .shortAndLong, help: "Ohne Rückfrage ausführen.")
+    var yes = false
+
+    mutating func run() async throws {
+        let context = try AppContext.make(options)
+        let config = try context.customer(customer).config
+        let pass = context.pass
+        try pass.ensureUserSession()
+
+        let agent = try pass.listAgents().first { $0.name == config.agentName }
+        let actual = try agent.map { try pass.listAccess(agentID: $0.id) } ?? []
+        let plan = AccessPlan.make(desired: config.proton.vaults, actual: actual)
+
+        print("\(config.customer): Agent '\(config.agentName)'")
+        if agent == nil {
+            print("  + Agent anlegen (Laufzeit \(config.proton.expiration.rawValue)), Token in '\(context.global.tokenVault)' / '\(config.protonTokenItem)' ablegen")
+        }
+        plan.actions.forEach { print("  \($0)") }
+        plan.notes.forEach { print("  ! \($0)") }
+        if agent != nil && plan.isEmpty {
+            print("  Nichts zu tun.")
+            return
+        }
+        if dryRun { return }
+        guard yes || Console.confirm("Ausführen?") else {
+            print("Abgebrochen.")
+            throw ExitCode.failure
+        }
+
+        if agent == nil {
+            // Fails early if the token vault is missing, before a token exists that couldn't be stored.
+            _ = try context.store.items()
+            let token = try pass.createAgent(name: config.agentName, lifetime: config.proton.expiration)
+            try context.storeToken(token, title: config.protonTokenItem)
+            print("  ✓ Agent angelegt, Token abgelegt")
+        }
+        for action in plan.actions {
+            switch action {
+            case let .grant(vault, role):
+                try pass.grant(agent: config.agentName, vault: vault, role: role)
+            case let .revoke(_, shareID, _):
+                try pass.revoke(agent: config.agentName, shareID: shareID)
+            }
+            print("  ✓ \(action)")
+        }
+
+        if agent == nil {
+            print("\nIm Container meldet sich pass-cli mit PROTON_PASS_PERSONAL_ACCESS_TOKEN an. Dazu:\n")
+            print(Scaffold.asylumConfigSnippet)
+        }
+    }
+}

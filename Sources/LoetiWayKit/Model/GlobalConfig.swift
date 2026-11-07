@@ -1,0 +1,68 @@
+import Foundation
+import Yams
+
+/// `~/.config/loeti-way/config.yaml`. Every key is optional.
+///
+/// ```yaml
+/// root: /Volumes/Code          # where `lw status` looks for customers
+/// token_vault: Agent Tokens    # Proton vault for all tokens; no agent gets access to it
+/// warn_days: 14                # warn this many days before a token expires
+/// ```
+public struct GlobalConfig: Equatable, Sendable {
+    public static let defaultRoot = "/Volumes/Code"
+    public static let defaultTokenVault = "Agent Tokens"
+
+    public var root: URL
+    public var tokenVault: String
+    public var warnDays: Int
+
+    public init(root: URL, tokenVault: String = GlobalConfig.defaultTokenVault, warnDays: Int = 14) {
+        self.root = root
+        self.tokenVault = tokenVault
+        self.warnDays = warnDays
+    }
+
+    private struct File: Decodable {
+        var root: String?
+        var tokenVault: String?
+        var warnDays: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case root
+            case tokenVault = "token_vault"
+            case warnDays = "warn_days"
+        }
+    }
+
+    public static func fileURL(environment: [String: String]) -> URL {
+        let base = environment["XDG_CONFIG_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: environment["HOME"] ?? NSHomeDirectory()).appendingPathComponent(".config")
+        return base.appendingPathComponent("loeti-way").appendingPathComponent("config.yaml")
+    }
+
+    /// Order: environment (`LW_ROOT`, `LW_TOKEN_VAULT`) → config file → defaults.
+    public static func load(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> GlobalConfig {
+        let url = fileURL(environment: environment)
+        var file = File()
+        if FileManager.default.fileExists(atPath: url.path) {
+            do {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                file = try YAMLDecoder().decode(File.self, from: text)
+            } catch {
+                throw LWError("\(url.path): \(error)")
+            }
+        }
+        let rootPath = environment["LW_ROOT"] ?? file.root ?? defaultRoot
+        return GlobalConfig(
+            root: URL(fileURLWithPath: expandTilde(rootPath, environment: environment)),
+            tokenVault: environment["LW_TOKEN_VAULT"] ?? file.tokenVault ?? defaultTokenVault,
+            warnDays: file.warnDays ?? 14
+        )
+    }
+
+    static func expandTilde(_ path: String, environment: [String: String]) -> String {
+        guard path == "~" || path.hasPrefix("~/") else { return path }
+        let home = environment["HOME"] ?? NSHomeDirectory()
+        return home + path.dropFirst()
+    }
+}
