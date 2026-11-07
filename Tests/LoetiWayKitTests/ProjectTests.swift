@@ -18,7 +18,7 @@ struct ProjectTests {
         try Fixtures.write(Fixtures.kundeA, to: customer.appendingPathComponent(CustomerConfig.fileName))
         try Fixtures.write("github:\n  token_name: web_PAT\n", to: customer.appendingPathComponent("web/\(ProjectConfig.fileName)"))
         try Fixtures.write("project: api\n", to: customer.appendingPathComponent("group/api/\(ProjectConfig.fileName)"))
-        try Fixtures.write("project: x\n", to: customer.appendingPathComponent("group/deep/x/\(ProjectConfig.fileName)"))
+        try Fixtures.write("{}\n", to: customer.appendingPathComponent("group/deep/x/\(ProjectConfig.fileName)"))
         try Fixtures.write("github: [", to: customer.appendingPathComponent("broken/\(ProjectConfig.fileName)"))
         try FileManager.default.createDirectory(at: customer.appendingPathComponent("web/src"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: customer.appendingPathComponent("broken/src"), withIntermediateDirectories: true)
@@ -41,7 +41,7 @@ struct ProjectTests {
     @Test("project values win")
     func overrides() throws {
         let project = try ProjectConfig.resolve("""
-        project: Web App
+        project: web
         github:
           owner: other-org
           token_name: loeti_loeti-way_PAT
@@ -49,10 +49,10 @@ struct ProjectTests {
           repositories: [web, docs]
           permissions: {contents: read}
         """, folder: folder, customer: try kundeA())
-        #expect(project.name == "Web App")
+        #expect(project.name == "web")
         #expect(project.github.settings == GitHubSettings(owner: "other-org", expiresInDays: 30, permissions: ["contents": "read"],
                                                           repositories: ["web", "docs"], tokenName: "loeti_loeti-way_PAT"))
-        #expect(project.github.tokenItem == "KundeA Web App GitHub PAT")
+        #expect(project.github.tokenItem == "KundeA web GitHub PAT")
         #expect(project.github.tokenName == "loeti_loeti-way_PAT")
     }
 
@@ -62,7 +62,8 @@ struct ProjectTests {
         #expect(throws: LWError.self) { try ProjectConfig.resolve("{}", folder: folder, customer: noGitHub) }
         #expect(try ProjectConfig.resolve("github: {owner: b-org}", folder: folder, customer: noGitHub).github.settings.owner == "b-org")
         #expect(throws: LWError.self) { try ProjectConfig.resolve("github: {expires_in_days: 0}", folder: folder, customer: try kundeA()) }
-        #expect(throws: LWError.self) { try ProjectConfig.resolve("project: a/b", folder: folder, customer: try kundeA()) }
+        // Agent-writable: 'project' must not rename the project and with it its note.
+        #expect(throws: LWError.self) { try ProjectConfig.resolve("project: api", folder: folder, customer: try kundeA()) }
         // The file lies where agents can write; it must not choose the note lw reads and writes.
         #expect(throws: LWError.self) { try ProjectConfig.resolve("github: {token_item: KundeB GitHub PAT}", folder: folder, customer: try kundeA()) }
     }
@@ -84,7 +85,24 @@ struct ProjectTests {
         try Fixtures.write(config, to: customerDir.appendingPathComponent(CustomerConfig.fileName))
         try Fixtures.write("{}\n", to: customerDir.appendingPathComponent("dup/\(ProjectConfig.fileName)"))
         let customer = try CustomerLocator.load(file: customerDir.appendingPathComponent(CustomerConfig.fileName))
-        #expect(customer.projectFailures.contains { $0.message.contains("schon vergeben") })
+        #expect(customer.projectFailures.contains { $0.message.contains("mehrfach vergeben") })
+    }
+
+    @Test("a project can't take over another project's note, and shared notes fail for both")
+    func takeover() throws {
+        let (_, customerDir) = try makeTree()
+        let customerFile = customerDir.appendingPathComponent(CustomerConfig.fileName)
+        // An agent in group/api renames its project to web: api is rejected, web keeps its PAT.
+        try Fixtures.write("project: web\n", to: customerDir.appendingPathComponent("group/api/\(ProjectConfig.fileName)"))
+        var customer = try CustomerLocator.load(file: customerFile)
+        #expect(customer.projects.map(\.name) == ["web"])
+        #expect(customer.projectFailures.contains { $0.file.path.contains("group/api") })
+
+        // Two folders named web: neither gets the note, regardless of which is found first.
+        try Fixtures.write("{}\n", to: customerDir.appendingPathComponent("a/web/\(ProjectConfig.fileName)"))
+        customer = try CustomerLocator.load(file: customerFile)
+        #expect(!customer.projects.contains { $0.name == "web" })
+        #expect(customer.projectFailures.filter { $0.message.contains("mehrfach vergeben") }.count == 2)
     }
 
     @Test("a project can't use another customer's note")

@@ -21,7 +21,7 @@ struct InitCommand: AsyncParsableCommand {
     @Flag(help: "Einen Projektordner mit eigenem GitHub-PAT einrichten statt eines Kundenordners.")
     var project = false
 
-    @Option(help: "Kunden- bzw. Projektname (Standard: Name des Ordners).")
+    @Option(help: "Kundenname (Standard: Name des Ordners). Nicht mit --project: Projekte heissen wie ihr Ordner.")
     var customer: String?
 
     @Option(name: .customLong("github-owner"), help: "GitHub-Organisation oder -Benutzer. Kunde: ohne Angabe bleibt der github-Abschnitt auskommentiert. Projekt: Standard ist der Owner des Kunden.")
@@ -87,7 +87,10 @@ struct InitCommand: AsyncParsableCommand {
             throw LWError("Über \(folder.path) gibt es keine \(CustomerConfig.fileName). Zuerst den Kundenordner mit `lw init` einrichten.")
         }
         var loaded = try CustomerLocator.load(file: customerFile)
-        let name = customer ?? folder.lastPathComponent
+        if customer != nil {
+            throw LWError("--customer gibt es mit --project nicht: Der Projektname ist immer der Ordnername.")
+        }
+        let name = folder.lastPathComponent
         if loaded.config.github == nil && githubOwner == nil {
             throw LWError("\(loaded.config.customer) hat keinen github-Abschnitt, also --github-owner angeben.")
         }

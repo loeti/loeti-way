@@ -17,7 +17,7 @@ In an Asylum container there is no Swift toolchain: build and test through the `
 
 - `PassCLI` is the only place that knows pass-cli's arguments and JSON. The shapes come from pass-cli's source (`pass-cli/src/commands/agent`, `pass/src/personal_access_token`), not from the docs. `list-access` is internally tagged by `type`; a role is `"Viewer"` or `{"Custom": …}`.
 - Everything goes through `CommandRunner`; tests use `FakeRunner`. Never run the real pass-cli in tests.
-- GitHub PATs exist per customer (`github` in `.loeti-way.yaml`) and optionally per project (`.loeti-way-project.yaml`, resolved against the customer in `ProjectConfig`). Code that handles a PAT works on a `GitHubTarget`. Inside a broken project config never fall back to the customer's PAT. A project file is agent-writable: it never chooses its note title (always `<customer> <project> GitHub PAT`), and `CustomerLocator.ensureUnclaimed` checks all customers before a note is read or written.
+- GitHub PATs exist per customer (`github` in `.loeti-way.yaml`) and optionally per project (`.loeti-way-project.yaml`, resolved against the customer in `ProjectConfig`). Code that handles a PAT works on a `GitHubTarget`. Inside a broken project config never fall back to the customer's PAT. A project file is agent-writable: nothing in it chooses its note title (always `<customer> <folder name> GitHub PAT`; shared titles fail for every project involved), and `CustomerLocator.ensureUnclaimed` checks all customers before a note is read or written.
 - `AccessPlan` only manages whole-vault grants. Item and folder grants are reported, never revoked.
 
 ## Rules

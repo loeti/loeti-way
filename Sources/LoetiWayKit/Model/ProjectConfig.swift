@@ -33,8 +33,9 @@ public struct GitHubTarget: Equatable, Sendable {
 /// that replaces the customer's in this folder. The Proton agent stays the customer's.
 ///
 /// Every `github` key is optional; missing ones come from the customer's `github` section.
-/// The note in the token vault is always `<customer> <project> GitHub PAT`: the file lies in a
-/// folder agents can write to, so it must not be able to point lw at another note.
+/// The project is named after its folder, and its note in the token vault is always
+/// `<customer> <folder> GitHub PAT`: the file lies where agents can write, so nothing in it may
+/// point lw at another note. `project` is only accepted if it repeats the folder name.
 public enum ProjectConfig {
     public static let fileName = ".loeti-way-project.yaml"
 
@@ -59,8 +60,7 @@ public enum ProjectConfig {
         }
     }
 
-    /// Parses a project file and fills the gaps from `customer`. `folder` names the project
-    /// unless the file sets `project`.
+    /// Parses a project file and fills the gaps from `customer`. `folder` names the project.
     public static func resolve(_ yaml: String, folder: URL, customer: CustomerConfig) throws -> LoadedProject {
         let file: File
         do {
@@ -72,7 +72,7 @@ public enum ProjectConfig {
             throw LWError("Ungültiges YAML: \(error)")
         }
 
-        let name = file.project ?? folder.lastPathComponent
+        let name = folder.lastPathComponent
         let partial = file.github ?? File.Partial()
         let inherited = customer.github
         guard let owner = partial.owner ?? inherited?.owner else {
@@ -96,8 +96,8 @@ public enum ProjectConfig {
         )
 
         var problems = settings.problems(section: "github")
-        if name.trimmingCharacters(in: .whitespaces).isEmpty {
-            problems.append("'project' ist leer")
+        if let project = file.project, project != name {
+            problems.append("'project: \(project)' passt nicht zum Ordner '\(name)'. Der Projektname ist immer der Ordnername; 'project' weglassen")
         }
         if partial.tokenItem != nil {
             problems.append("'github.token_item' gibt es nur beim Kunden; die Notiz des Projekts heisst immer '\(target.tokenItem)'")

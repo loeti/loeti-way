@@ -25,15 +25,27 @@ public enum CustomerLocator {
             throw LWError("\(file.path): \(error)")
         }
         var customer = LoadedCustomer(config: config, file: file)
+        var resolved: [(file: URL, project: LoadedProject)] = []
         for projectFile in findProjects(below: customer.directory, maxDepth: projectDepth) {
             do {
                 let project = try ProjectConfig.resolve(try read(projectFile), folder: projectFile.deletingLastPathComponent(), customer: config)
-                guard !customer.tokenItems.contains(project.github.tokenItem) else {
-                    throw LWError("Notiz '\(project.github.tokenItem)' ist schon vergeben; 'project' anders setzen")
-                }
-                customer.projects.append(project)
+                resolved.append((projectFile, project))
             } catch {
                 customer.projectFailures.append(Failure(file: projectFile, message: "\(projectFile.path): \(error)"))
+            }
+        }
+        // Fail closed: every project whose note is shared, with the customer or with another
+        // project (same folder name at another level), is rejected, not just the later one.
+        let customerItems = customer.tokenItems
+        var counts: [String: Int] = [:]
+        for entry in resolved { counts[entry.project.github.tokenItem, default: 0] += 1 }
+        for entry in resolved {
+            let item = entry.project.github.tokenItem
+            if customerItems.contains(item) || counts[item, default: 0] > 1 {
+                let message = "Notiz '\(item)' ist mehrfach vergeben (gleicher Ordnername oder Notiz des Kunden); Ordner umbenennen"
+                customer.projectFailures.append(Failure(file: entry.file, message: "\(entry.file.path): \(message)"))
+            } else {
+                customer.projects.append(entry.project)
             }
         }
         return customer

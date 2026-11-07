@@ -72,7 +72,7 @@ public enum Scaffold {
         return """
         # lw (loeti-way): eigener GitHub-PAT für \(project) (Kunde \(customer.customer)).
         # Gilt in diesem Ordner statt des PAT des Kunden. Der Proton-Agent bleibt der des Kunden.
-        project: \(yamlQuoted(project))
+        # Der Projektname ist immer der Ordnername.
 
         github:
         \(ownerLine)
