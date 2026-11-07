@@ -134,6 +134,23 @@ struct StatusTests {
         #expect(texts(try #require(report.customers.first), .ok).contains("GitHub: Token abgelegt (nicht geprüft)"))
     }
 
+    @Test("a repo without any PAT is one line, with the repo and the fix")
+    func noPAT() async throws {
+        let tree = try makeTree()
+        let file = tree.customer.appendingPathComponent(CustomerConfig.fileName)
+        try Fixtures.write(Fixtures.kundeA.components(separatedBy: "\ngithub:")[0] + "\n", to: file)
+        try FileManager.default.removeItem(at: tree.customer.appendingPathComponent("web/\(ProjectConfig.fileName)"))
+        let (collector, customer) = try collector(tree, runner: hostRunner(), checker: checker)
+        let report = await collector.collect([customer])
+        let todo = texts(try #require(report.customers.first), .attention)
+        let api = todo.filter { $0.hasPrefix("api:") }
+        #expect(api.count == 1)
+        #expect(api.first?.hasPrefix("api: kundea-org/api ohne PAT → lw init --project /") == true)
+        #expect(api.first?.hasSuffix("/api") == true)
+        // Without an origin there is no repo name, so the project line stays.
+        #expect(todo.contains { $0.hasPrefix("notes: kein Projekt-PAT → lw init --project") })
+    }
+
     @Test("without a host agent nothing is read, and that is the first thing to fix")
     func noHost() async throws {
         let tree = try makeTree()

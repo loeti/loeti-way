@@ -263,8 +263,12 @@ public struct StatusCollector {
 
         let project = customer.project(containing: repository.directory)
         let target = project?.github ?? customer.config.githubTarget(directory: customer.directory)
+        let initCommand = "lw init --project \(repository.directory.path)"
         if project == nil {
-            lines.append(.todo("\(relative): kein Projekt-PAT → lw init --project \(repository.directory.path)"))
+            // Without any PAT the GitHub line below says it, with the repo name.
+            if target != nil || repository.github == nil {
+                lines.append(.todo("\(relative): kein Projekt-PAT → \(initCommand)"))
+            }
             // Its own .envrc wins over the customer's; it must call lw env or chain up.
             switch EnvrcState.check(repository.directory) {
             case .missing, .current, .own(chainsUp: true): break
@@ -278,7 +282,8 @@ public struct StatusCollector {
             return lines
         }
         guard let target else {
-            lines.append(.todo("\(relative): \(github) ohne PAT"))
+            // A project always has a PAT, so this repo has no project.
+            lines.append(.todo("\(relative): \(github) ohne PAT → \(initCommand)"))
             return lines
         }
         guard let checker, let token = tokens.value(target.tokenItem) else {
