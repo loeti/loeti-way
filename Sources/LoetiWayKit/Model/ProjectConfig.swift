@@ -91,7 +91,7 @@ public enum ProjectConfig {
             project: name,
             settings: settings,
             tokenItem: "\(customer.customer) \(name) GitHub PAT",
-            tokenName: partial.tokenName ?? "\(customer.customer) \(name) Asylum",
+            tokenName: partial.tokenName ?? "\(customer.customer)_\(name)_PAT",
             directory: folder
         )
 

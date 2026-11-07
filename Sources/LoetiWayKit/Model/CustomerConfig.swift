@@ -160,7 +160,7 @@ public struct CustomerConfig: Equatable, Sendable, Codable {
     public var agentName: String { proton.agent ?? "asylum-\(Slug.make(customer))" }
     public var protonTokenItem: String { proton.tokenItem ?? "\(customer) Proton Agent" }
     public var githubTokenItem: String { github?.tokenItem ?? "\(customer) GitHub PAT" }
-    public var githubTokenName: String { github?.tokenName ?? "\(customer) Asylum" }
+    public var githubTokenName: String { github?.tokenName ?? "\(customer)_PAT" }
 
     /// The customer-wide GitHub PAT, nil without a `github` section.
     public func githubTarget(directory: URL) -> GitHubTarget? {

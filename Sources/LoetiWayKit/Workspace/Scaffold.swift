@@ -77,7 +77,7 @@ public enum Scaffold {
 
         github:
         \(ownerLine)
-          # token_name: \(yamlQuoted("\(customer.customer) \(project) Asylum"))   # Name des Tokens auf GitHub
+          # token_name: \(yamlQuoted("\(customer.customer)_\(project)_PAT"))   # Name des Tokens auf GitHub
           repositories: [\(yamlQuoted(project))]    # Erinnerung für "Only select repositories"
           # expires_in_days und permissions: Standard wie beim Kunden
 

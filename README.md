@@ -117,7 +117,7 @@ Ein Fine-grained PAT hat für alle ausgewählten Repos dieselben Rechte und geh�
 # /Volumes/Code/customers/KundeA/projekt-a2/.loeti-way-project.yaml
 github:                         # fehlende Werte kommen vom Kunden
   owner: kundea-org             # lw init --project schreibt ihn immer hin
-  token_name: kundea_projekt-a2_PAT   # Name auf GitHub, Standard: "<Kunde> <Projekt> Asylum"
+  token_name: kundea_projekt-a2_PAT   # Name auf GitHub, Standard: "<Kunde>_<Projekt>_PAT"
   repositories: [projekt-a2]    # Standard: [<projekt>]
 ```
 
@@ -125,7 +125,7 @@ github:                         # fehlende Werte kommen vom Kunden
 
 Das Projekt heisst immer wie sein Ordner, die Notiz im Token-Vault immer `<Kunde> <Ordner> GitHub PAT`. `token_item` gibt es nur beim Kunden, und `project` ist nur erlaubt, wenn es den Ordnernamen wiederholt. Haben zwei Projekte denselben Ordnernamen, lehnt `lw` beide ab. Die Projektdatei liegt dort, wo Agents schreiben können, und darf `lw` darum nicht auf eine andere Notiz lenken. Gehört dieselbe Notiz noch einem anderen Kunden, brechen `lw env`, `lw init --project` und `lw github` ab.
 
-`token_name` gibt es auch beim Kunden. Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
+`token_name` gibt es auch beim Kunden (Standard: `<Kunde>_PAT`). Es muss zum Namen des Tokens auf GitHub passen, sonst schickt dich `lw github` beim Erneuern zum falschen Token.
 
 ## Globale Einstellungen
 

@@ -34,7 +34,7 @@ struct ProjectTests {
         #expect(project.github.settings.permissions == GitHubSettings.defaultPermissions)
         #expect(project.github.settings.repositories == ["web"])
         #expect(project.github.tokenItem == "KundeA web GitHub PAT")
-        #expect(project.github.tokenName == "KundeA web Asylum")
+        #expect(project.github.tokenName == "KundeA_web_PAT")
         #expect(project.github.label == "KundeA / web")
     }
 
